@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>食证 - 健康营养证据助手</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Source+Serif+4:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="食证首页"><span class="brand-mark">食</span><span>食证</span></a>
+    <div class="topbar-meta"><span class="status-dot"></span>证据优先</div>
+  </header>
+  <main>
+    <section class="intro">
+      <p class="eyebrow">NUTRITION EVIDENCE, EXPLAINED</p>
+      <h1>让每一条健康建议<br>都能找到依据。</h1>
+      <p class="intro-copy">面向日常饮食、血压与血脂问题的可追溯科普。先检索公开证据，再用普通人能读懂的语言回答。</p>
+    </section>
+    <section class="ask-panel" aria-label="提问区">
+      <label for="question">你想了解什么？</label>
+      <div class="ask-row">
+        <textarea id="question" rows="2" placeholder="例如：限钠饮食对高血压是否真的有帮助？"></textarea>
+        <button id="ask-button" type="button">获取证据</button>
+      </div>
+      <div class="suggestions" aria-label="示例问题">
+        <button type="button" data-question="地中海饮食对心血管风险有什么证据？">地中海饮食与心血管风险</button>
+        <button type="button" data-question="限钠饮食对高血压是否真的有帮助？">限钠饮食与高血压</button>
+        <button type="button" data-question="血脂偏高的人应该只靠保健品吗？">血脂偏高如何看待保健品</button>
+      </div>
+    </section>
+    <section id="empty-state" class="empty-state">
+      <div class="empty-icon">+</div>
+      <p>输入问题后，这里会呈现结论、证据边界与可核查来源。</p>
+    </section>
+    <section id="answer-section" class="answer-section is-hidden" aria-live="polite">
+      <div class="answer-main">
+        <p class="eyebrow">EVIDENCE SUMMARY</p>
+        <article id="answer-content" class="answer-content"></article>
+        <aside id="safety-note" class="safety-note"></aside>
+      </div>
+      <aside class="source-panel">
+        <div class="source-heading"><span>来源</span><span id="source-count">0</span></div>
+        <div id="citation-list" class="citation-list"></div>
+        <button id="pubmed-toggle" class="secondary-button" type="button">实时检索 PubMed</button>
+        <div id="pubmed-results" class="pubmed-results"></div>
+      </aside>
+    </section>
+  </main>
+  <footer>用于健康教育和文献线索整理，不用于诊断或治疗决策。</footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+[
+  {"question": "地中海饮食对心血管风险有什么证据？", "must_include": ["E1", "证据边界"]},
+  {"question": "限钠饮食对高血压是否真的有帮助？", "must_include": ["E1", "医生"]},
+  {"question": "血脂偏高的人应该只靠保健品吗？", "must_include": ["E1", "不替代"]}
+]

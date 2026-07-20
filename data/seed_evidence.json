@@ -1,0 +1,56 @@
+[
+  {
+    "id": "mediterranean-predimed-2018",
+    "title": "Primary Prevention of Cardiovascular Disease with a Mediterranean Diet Supplemented with Extra-Virgin Olive Oil or Nuts",
+    "source_type": "随机对照试验（PREDIMED 再分析）",
+    "year": "2018",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/29897866/",
+    "evidence_level": "随机对照试验",
+    "content": "PREDIMED 再分析报告：在高心血管风险人群中，以特级初榨橄榄油或坚果补充的地中海饮食，与对照饮食相比，主要心血管事件风险较低。该研究关注的是整体饮食模式，而不是单一食物；参与者同时接受了持续的饮食支持。"
+  },
+  {
+    "id": "aha-dietary-guidance-2021",
+    "title": "2021 Dietary Guidance to Improve Cardiovascular Health: A Scientific Statement From the American Heart Association",
+    "source_type": "美国心脏协会科学声明",
+    "year": "2021",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/34766911/",
+    "evidence_level": "专业指南/科学声明",
+    "content": "美国心脏协会建议采用以蔬果、全谷物、豆类、坚果、鱼类和低脂乳制品为主的整体饮食模式，限制高盐、高糖、精制碳水和高度加工食品。地中海式饮食与 DASH 等模式都可作为改善心血管健康的可行框架。"
+  },
+  {
+    "id": "who-sodium-guideline-2012",
+    "title": "WHO Guideline: Sodium intake for adults and children",
+    "source_type": "世界卫生组织指南",
+    "year": "2012",
+    "url": "https://www.who.int/publications/i/item/9789241504836",
+    "evidence_level": "国际指南",
+    "content": "世界卫生组织建议成人每日钠摄入量少于 2 克，约等于食盐 5 克。减少钠摄入有助于降低血压；大部分膳食钠来自加工食品、外卖和调味品，因此重点应放在整体食物环境与习惯，而不只是做饭时少放一勺盐。"
+  },
+  {
+    "id": "cochrane-salt-2021",
+    "title": "Reduced dietary salt for the prevention of cardiovascular disease",
+    "source_type": "Cochrane 系统综述",
+    "year": "2021",
+    "url": "https://www.cochranelibrary.com/",
+    "evidence_level": "系统综述",
+    "content": "随机试验的系统综述显示，降低饮食盐和钠通常可带来血压下降；效果大小会随起始血压、干预强度和依从性而变化。将减盐理解为长期生活方式干预，比短期极端限盐更符合证据和可持续性。"
+  },
+  {
+    "id": "dashes-sodium-2001",
+    "title": "Effects on blood pressure of reduced dietary sodium and the Dietary Approaches to Stop Hypertension (DASH) diet",
+    "source_type": "随机对照试验",
+    "year": "2001",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/11136953/",
+    "evidence_level": "随机对照试验",
+    "content": "DASH-Sodium 试验发现，降低钠摄入和采用 DASH 饮食均能降低血压，并且两者合用的降压效果更明显。试验结果支持把限钠放进富含蔬果、全谷物、低脂乳制品的整体饮食中执行。"
+  },
+  {
+    "id": "esc-prevention-2021",
+    "title": "2021 ESC Guidelines on cardiovascular disease prevention in clinical practice",
+    "source_type": "欧洲心脏病学会指南",
+    "year": "2021",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/34458905/",
+    "evidence_level": "专业指南",
+    "content": "欧洲指南将健康饮食、规律活动、戒烟和体重管理放在心血管疾病预防的基础位置。对于血脂和血压风险，生活方式管理与需要时的规范治疗应结合，而不是互相替代。"
+  }
+]
