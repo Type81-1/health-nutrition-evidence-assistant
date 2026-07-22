@@ -52,5 +52,104 @@
     "url": "https://pubmed.ncbi.nlm.nih.gov/34458905/",
     "evidence_level": "专业指南",
     "content": "欧洲指南将健康饮食、规律活动、戒烟和体重管理放在心血管疾病预防的基础位置。对于血脂和血压风险，生活方式管理与需要时的规范治疗应结合，而不是互相替代。"
+  },
+  {
+    "id": "dash-diet-1997",
+    "title": "A clinical trial of the effects of dietary patterns on blood pressure. DASH Collaborative Research Group",
+    "source_type": "随机对照试验",
+    "year": "1997",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/9099655/",
+    "evidence_level": "随机对照试验",
+    "content": "DASH 原始喂养试验显示，富含蔬果和低脂乳制品、并减少饱和脂肪和总脂肪的整体饮食模式，可在不改变体重和钠摄入的条件下降低血压；高血压人群的降压幅度更明显。"
+  },
+  {
+    "id": "soluble-fiber-lipids-2023",
+    "title": "Soluble Fiber Supplementation and Serum Lipid Profile: A Systematic Review and Dose-Response Meta-Analysis of Randomized Controlled Trials",
+    "source_type": "系统综述/剂量反应 Meta 分析",
+    "year": "2023",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10201678/",
+    "evidence_level": "系统综述",
+    "content": "可溶性膳食纤维的随机试验系统综述显示，可溶性纤维补充通常能小幅降低总胆固醇、LDL 胆固醇和 ApoB。它适合作为饮食管理的一部分，但不能替代已明确需要的降脂治疗。"
+  },
+  {
+    "id": "whole-grain-lipids-2015",
+    "title": "Whole-grain and blood lipid changes in apparently healthy adults: a systematic review and meta-analysis of randomized controlled studies",
+    "source_type": "随机对照试验系统综述",
+    "year": "2015",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/26269373/",
+    "evidence_level": "系统综述",
+    "content": "全谷物随机对照研究的系统综述显示，相比精制谷物或非全谷物对照，全谷物摄入可小幅降低 LDL 胆固醇和总胆固醇，其中燕麦类全谷物效果更突出。"
+  },
+  {
+    "id": "plant-sterols-ldl-2014",
+    "title": "LDL-cholesterol-lowering effect of plant sterols and stanols across different dose ranges: a meta-analysis of randomised controlled studies",
+    "source_type": "随机对照试验 Meta 分析",
+    "year": "2014",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/24780090/",
+    "evidence_level": "系统综述",
+    "content": "植物甾醇和植物 stanol 强化食品的随机试验 Meta 分析显示，其可降低 LDL 胆固醇，效果与摄入剂量和食物载体有关。它更像辅助性饮食工具，而不是替代他汀等规范治疗的方案。"
+  },
+  {
+    "id": "aha-omega3-triglycerides-2019",
+    "title": "Omega-3 Fatty Acids for the Management of Hypertriglyceridemia: A Science Advisory From the American Heart Association",
+    "source_type": "美国心脏协会科学建议",
+    "year": "2019",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31422671/",
+    "evidence_level": "专业指南/科学声明",
+    "content": "美国心脏协会科学建议指出，处方级 omega-3 脂肪酸可用于降低甘油三酯，尤其是在较高剂量和特定血脂异常场景中；普通鱼油保健品不能简单等同于处方药，也不应自行替代医生给出的降脂方案。"
+  },
+  {
+    "id": "omega3-supplements-cvd-2018",
+    "title": "Associations of Omega-3 Fatty Acid Supplement Use With Cardiovascular Disease Risks: Meta-analysis of 10 Trials Involving 77 917 Individuals",
+    "source_type": "随机试验 Meta 分析",
+    "year": "2018",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/29387889/",
+    "evidence_level": "系统综述",
+    "content": "大型随机试验 Meta 分析未发现普通 omega-3 补充剂与主要心血管事件显著降低之间有稳定关联。对于血脂偏高或心血管风险人群，不能把鱼油保健品视为生活方式管理或药物治疗的替代品。"
+  },
+  {
+    "id": "who-sugars-guideline-2015",
+    "title": "WHO Guideline: Sugars intake for adults and children",
+    "source_type": "世界卫生组织指南",
+    "year": "2015",
+    "url": "https://www.who.int/publications/i/item/9789241549028/",
+    "evidence_level": "国际指南",
+    "content": "世界卫生组织建议成人和儿童限制游离糖摄入，通常应低于总能量摄入的 10%，进一步降低到 5% 以下可能带来额外健康收益。含糖饮料、甜点和添加糖食品是需要优先关注的来源。"
+  },
+  {
+    "id": "sugar-sweetened-beverages-diabetes-2015",
+    "title": "Consumption of sugar sweetened beverages, artificially sweetened beverages, and fruit juice and incidence of type 2 diabetes",
+    "source_type": "系统综述/Meta 分析",
+    "year": "2015",
+    "url": "https://www.bmj.com/content/351/bmj.h3576",
+    "evidence_level": "系统综述",
+    "content": "BMJ 系统综述和 Meta 分析显示，较高含糖饮料摄入与 2 型糖尿病发生风险增加相关，即使考虑体重因素后仍可见关联。用果汁或代糖饮料完全替代含糖饮料并不等于没有风险。"
+  },
+  {
+    "id": "low-gi-diabetes-2021",
+    "title": "Effect of low glycaemic index or load dietary patterns on glycaemic control and cardiometabolic risk factors in diabetes",
+    "source_type": "随机对照试验系统综述",
+    "year": "2021",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/34348965/",
+    "evidence_level": "系统综述",
+    "content": "低升糖指数或低升糖负荷饮食模式的随机试验系统综述显示，这类饮食可帮助改善糖尿病人群的血糖控制和部分心代谢指标。它强调的是碳水质量和整体搭配，而不是完全不吃主食。"
+  },
+  {
+    "id": "ada-nutrition-therapy-2019",
+    "title": "Nutrition Therapy for Adults With Diabetes or Prediabetes: A Consensus Report",
+    "source_type": "美国糖尿病协会共识报告",
+    "year": "2019",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31000505/",
+    "evidence_level": "专业指南/共识",
+    "content": "美国糖尿病协会营养治疗共识强调，糖尿病或糖尿病前期成人应接受个体化营养治疗，以改善血糖、体重和心血管风险因素；没有一种饮食模式适合所有人，执行时应结合个人偏好、代谢目标和医疗建议。"
+  },
+  {
+    "id": "ultraprocessed-cvd-2024",
+    "title": "Ultra-processed food consumption and risk of cardiovascular events: a systematic review and dose-response meta-analysis",
+    "source_type": "系统综述/剂量反应 Meta 分析",
+    "year": "2024",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/38389712/",
+    "evidence_level": "系统综述",
+    "content": "超加工食品与心血管事件的系统综述和剂量反应 Meta 分析显示，较高超加工食品摄入与心血管事件风险升高相关。实际饮食建议可从减少含糖饮料、加工肉制品、甜点和高盐零食等开始。"
   }
 ]

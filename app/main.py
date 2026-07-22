@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
 
 from app.schemas import AnswerResponse, PubMedSearchRequest, QuestionRequest
 from app.services.answer_service import AnswerService
@@ -12,11 +14,15 @@ from app.services.evidence_store import EvidenceStore
 from app.services.pubmed_client import PubMedClient
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = Path(__file__).parent / "static"
+load_dotenv(PROJECT_ROOT / ".env")
+ENABLE_CHROMA = os.getenv("ENABLE_CHROMA", "false").lower() in {"1", "true", "yes", "on"}
+
 app = FastAPI(title="健康营养证据助手", version="0.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-store = EvidenceStore()
+store = EvidenceStore(enable_chroma=ENABLE_CHROMA)
 answers = AnswerService(store)
 pubmed = PubMedClient()
 
