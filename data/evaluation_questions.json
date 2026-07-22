@@ -1,5 +1,52 @@
 [
-  {"question": "地中海饮食对心血管风险有什么证据？", "must_include": ["E1", "证据边界"]},
-  {"question": "限钠饮食对高血压是否真的有帮助？", "must_include": ["E1", "医生"]},
-  {"question": "血脂偏高的人应该只靠保健品吗？", "must_include": ["E1", "不替代"]}
+  {
+    "question": "地中海饮食对心血管风险有什么证据？",
+    "must_include": ["E1", "证据边界"],
+    "expected_source_ids": ["mediterranean-predimed-2018", "aha-dietary-guidance-2021"]
+  },
+  {
+    "question": "限钠饮食对高血压是否真的有帮助？",
+    "must_include": ["E1", "医生"],
+    "expected_source_ids": ["dashes-sodium-2001", "who-sodium-guideline-2012", "cochrane-salt-2021"]
+  },
+  {
+    "question": "血脂偏高的人应该只靠保健品吗？",
+    "must_include": ["E1", "不替代"],
+    "expected_source_ids": ["omega3-supplements-cvd-2018", "aha-omega3-triglycerides-2019", "plant-sterols-ldl-2014"]
+  },
+  {
+    "question": "DASH 饮食适合高血压人群吗？",
+    "must_include": ["E1", "降低血压"],
+    "expected_source_ids": ["dash-diet-1997", "dashes-sodium-2001"]
+  },
+  {
+    "question": "鱼油能不能替代降脂药？",
+    "must_include": ["E1", "替代"],
+    "expected_source_ids": ["aha-omega3-triglycerides-2019", "omega3-supplements-cvd-2018"]
+  },
+  {
+    "question": "膳食纤维对 LDL 胆固醇有帮助吗？",
+    "must_include": ["E1", "LDL"],
+    "expected_source_ids": ["soluble-fiber-lipids-2023", "whole-grain-lipids-2015", "plant-sterols-ldl-2014"]
+  },
+  {
+    "question": "控糖饮食是否一定要完全不吃主食？",
+    "must_include": ["E1", "完全不吃主食"],
+    "expected_source_ids": ["low-gi-diabetes-2021", "ada-nutrition-therapy-2019"]
+  },
+  {
+    "question": "含糖饮料和糖尿病风险有什么关系？",
+    "must_include": ["E1", "含糖饮料"],
+    "expected_source_ids": ["sugar-sweetened-beverages-diabetes-2015", "who-sugars-guideline-2015"]
+  },
+  {
+    "question": "超加工食品对心血管健康有什么影响？",
+    "must_include": ["E1", "超加工"],
+    "expected_source_ids": ["ultraprocessed-cvd-2024", "aha-dietary-guidance-2021"]
+  },
+  {
+    "question": "体检发现胆固醇高，生活方式能做什么？",
+    "must_include": ["E1", "胆固醇"],
+    "expected_source_ids": ["soluble-fiber-lipids-2023", "whole-grain-lipids-2015", "plant-sterols-ldl-2014"]
+  }
 ]

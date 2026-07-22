@@ -3,6 +3,7 @@ const askButton = document.querySelector('#ask-button');
 const emptyState = document.querySelector('#empty-state');
 const answerSection = document.querySelector('#answer-section');
 const answerContent = document.querySelector('#answer-content');
+const retrievalNote = document.querySelector('#retrieval-note');
 const safetyNote = document.querySelector('#safety-note');
 const citationList = document.querySelector('#citation-list');
 const sourceCount = document.querySelector('#source-count');
@@ -46,12 +47,14 @@ async function askQuestion() {
     const data = await response.json();
     lastQuestion = question;
     answerContent.innerHTML = renderMarkdown(data.answer_markdown);
+    retrievalNote.textContent = data.retrieval_note;
     safetyNote.textContent = data.safety_note;
     renderCitations(data.citations);
     emptyState.classList.add('is-hidden');
     answerSection.classList.remove('is-hidden');
   } catch (error) {
     answerContent.innerHTML = `<p>暂时无法完成检索，请稍后重试。</p>`;
+    retrievalNote.textContent = '';
     emptyState.classList.add('is-hidden');
     answerSection.classList.remove('is-hidden');
   } finally {

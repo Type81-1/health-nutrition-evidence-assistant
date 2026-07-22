@@ -12,15 +12,25 @@
 
 ## 快速开始
 
-```powershell
-cd outputs/health-nutrition-evidence-assistant
-# 将 E:\python312\python.exe 换成你的 Python 3.11+ 可执行文件。
-E:\python312\python.exe -m pip install -r requirements.txt
-Copy-Item .env.example .env
-powershell -ExecutionPolicy Bypass -File scripts/start_local_server.ps1
+```zsh
+cd /Users/astrid/Documents/health-nutrition-evidence-assistant
+
+# 建议使用项目本地虚拟环境，避免污染 Anaconda base。
+/Users/astrid/anaconda3/envs/py311/bin/python -m venv .venv
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 120 --retries 10
+
+# 可选：配置 PubMed 和大模型 key。
+cp .env.example .env
+
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-打开 `http://127.0.0.1:8000`。初次启动会把 `data/seed_evidence.json` 中的示例指南与研究写入本地 Chroma 数据库。
+打开 `http://127.0.0.1:8000`。默认使用稳定的本地关键词检索；如需启用 Chroma 语义检索，可在 `.env` 中设置 `ENABLE_CHROMA=true`。
+
+不配置 API key 也可以运行本地证据问答。`NCBI_API_KEY` 只用于提升 PubMed 高频访问稳定性；`LLM_API_KEY` 只用于可选的大模型增强回答。
 
 ## 常用命令
 
@@ -60,6 +70,13 @@ pytest
 | `scripts/run_evaluation.py` | 评测命令 |
 | `scripts/start_local_server.ps1` | 本地启动命令 |
 | `tests/` | 不依赖网络的行为测试 |
+
+## 赛道二优化点
+
+- 本地证据库已扩展到 17 条，覆盖地中海饮食、DASH、限钠、血脂、膳食纤维、鱼油、糖摄入和超加工食品。
+- 关键词检索加入中文短语、领域同义词、标题命中和证据等级加权。
+- PubMed 检索支持常见中文健康问题到英文检索词的转换，并在 `efetch` 超时时回退到 `esummary`。
+- 评测集扩展到 10 个问题，并检查预期来源 ID 是否命中。
 
 ## 使用边界
 
