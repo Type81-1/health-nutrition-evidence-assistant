@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 class QuestionRequest(BaseModel):
     question: str = Field(min_length=4, max_length=500)
     include_pubmed: bool = False
+    conversation_id: str | None = None
 
 
 class Citation(BaseModel):
