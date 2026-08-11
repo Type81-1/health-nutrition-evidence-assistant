@@ -4,6 +4,76 @@
 
 ---
 
+## 2026-08-11 · 第十五轮：流式输出 (SSE)
+
+### 改动文件
+- `app/services/llm_client.py`
+- `app/main.py`
+- `app/static/app.js`
+- `app/static/styles.css`
+
+### 变更内容
+- **LLM 流式调用**：`llm_client.py` 新增 `stream_answer()` async generator，使用 `httpx.stream()` + `"stream": True` 调用 DeepSeek API，逐 token yield。
+- **新端点 `/api/answer/stream`**：`main.py` 新增 SSE（Server-Sent Events）端点，流式推送事件：
+  - `meta` — 检索元数据（引用列表、retrieval_note、safety_note）
+  - `chunk` — 逐字文本
+  - `done` — 流结束
+  - `blocked` / `error` — 安全拦截 / 错误
+- **前端流式消费**：`askQuestion()` 改用 `fetch` + `ReadableStream` 逐行解析 SSE，直接用 DOM API 更新 `.answer-content`（不再每个字全量重绘），消除频闪。
+- **打字动画**：按钮加载态从逐阶段文字切换 → `正在检索` + 三个跳动圆点（纯 opacity 脉冲）。
+- **操作按钮**：每条回答右下角新增复制 + 重新生成按钮，hover 显示。
+- **字体本地化**：移除 Google Fonts 外部 `<link>`，改用系统自带字体栈（PingFang SC / Microsoft YaHei / Songti SC）。
+- **设计修复**：`dotBounce` 改 `dotPulse`（去除弹跳 easing）；`.message-safety` `border-left` → `border-top`。
+
+### 修复
+- 流式渲染频闪：从每个 chunk 调 `renderAllMessages()` → 直接更新 DOM 节点
+- `_pending` 状态与 `_streaming` 状态解耦
+
+---
+
+## 2026-08-11 · 第十四轮：RAGAS 学术评测
+
+### 改动文件
+- `scripts/run_ragas_eval.py`（新建）
+- `ragas_report.md`（自动生成）
+
+### 变更内容
+- **评测脚本**：实现 RAGAS（RAG Assessment）四维自动评测：
+  - **忠实度 (Faithfulness)**：LLM-as-judge 逐条检查答案声明是否能在证据中找到支撑（0-10）
+  - **答案相关性 (Answer Relevancy)**：LLM-as-judge 判断回答是否切题（0-10）
+  - **上下文精度 (Context Precision)**：被 [Ex] 引用的证据数 / 总证据数
+  - **引用覆盖率 (Citation Coverage)**：实际引用数 / 总证据数
+- **综合得分**：加权公式 `忠实度×40% + 相关性×30% + 精度×15% + 覆盖率×15%`
+- **LLM-as-Judge**：用 DeepSeek 作为裁判模型，结构化 JSON 输出评分 + 理由。
+- **对比模式**：`--compare` 参数同时评测裸 LLM，输出对比表。
+- **快速模式**：`--quick` 只跑 5 题快速验证。
+- **报告输出**：控制台表格 + `ragas_report.md` Markdown 报告。
+
+### 5 题快速评测结果
+| 指标 | RAG 助手 |
+|------|---------|
+| 忠实度 | 8.6/10 |
+| 相关性 | 7.4/10 |
+| 上下文精度 | 100% |
+| 引用覆盖率 | 100% |
+| 综合得分 | 86.6/100 |
+
+---
+
+## 2026-08-11 · 第十三轮：Topbar 间距 + 复制/重新生成/打字动画
+
+### 改动文件
+- `app/static/styles.css`
+- `app/static/app.js`
+
+### 变更内容
+- **Topbar 放大**：`max-width` 820→960px，品牌字 16→18px，食字方块 30→34px，绿点 6→8px，间距全面增大。
+- **复制按钮**：每条回答右下角半透明复制图标，点选复制纯文本，弹"已复制"提示。
+- **重新生成**：复制旁 rotate 图标，同问题再问 LLM 生成不同措辞。
+- **打字圆点**：`正在检索...` 后面三个依次淡入淡出的灰绿圆点。
+
+---
+
 ## 2026-08-10 · 第十二轮：Taste-skill 去 AI 味
 
 ### 改动文件
@@ -401,8 +471,10 @@ cat logs/queries.jsonl
 
 - [ ] 暗色模式（taste-skill 建议 consumer-facing 页面应双模式）。
 - [ ] PubMed 检索超时重试机制。
-- [ ] 前端关键词高亮对英文术语的支持（当前仅支持中文术语）。
-- [x] ~~侧边栏"实时检索 PubMed"按钮~~ 用户决定保留，不删除。
+- [ ] Docker 一键部署。
+- [x] ~~侧边栏"实时检索 PubMed"按钮~~ 用户决定保留。
+- [x] RAGAS 学术评测
+- [x] 流式输出 (SSE)
 - [x] 结构化答案模板
 - [x] 偏方鉴别
 - [x] 评测题库对比评测
@@ -420,3 +492,6 @@ cat logs/queries.jsonl
 - [x] PubMed 日期过滤
 - [x] 日志系统
 - [x] 前端设计重写（Soft Structuralism + Polish + Taste-skill）
+- [x] 复制/重新生成按钮
+- [x] 打字动画
+- [x] 字体本地化

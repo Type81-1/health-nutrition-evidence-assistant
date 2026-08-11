@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -134,14 +135,57 @@ class OpenAICompatibleLlm:
     def answer(self, question: str, evidence: list[EvidenceChunk]) -> str | None:
         if not self.configured:
             return None
-        source_text = "\n\n".join(
-            f"[E{index}] {item.title} ({item.year}, {item.evidence_level})\n{item.content}"
-            for index, item in enumerate(evidence, start=1)
-        )
+        source_text = self._build_source_text(evidence)
         text = self._call_api(SYSTEM_PROMPT, f"问题：{question}\n\n可用证据（只使用与问题直接相关的条目）：\n{source_text}\n\n请用纯文本段落回答（不要用 markdown 格式，但必须用 [E1] [E2] 方括号标注引用）。")
         if text is None:
             return None
-        # 只校验是否有引用，不因个别格式偏差而丢弃整个回答
         if not re.search(r"\[E\d+\]", text):
             return None
         return text
+
+    def _build_source_text(self, evidence: list[EvidenceChunk]) -> str:
+        return "\n\n".join(
+            f"[E{index}] {item.title} ({item.year}, {item.evidence_level})\n{item.content}"
+            for index, item in enumerate(evidence, start=1)
+        )
+
+    async def stream_answer(self, question: str, evidence: list[EvidenceChunk]):
+        """流式生成回答，逐块 yield 文本。"""
+        if not self.configured:
+            yield None
+            return
+        source_text = self._build_source_text(evidence)
+        user_msg = f"问题：{question}\n\n可用证据（只使用与问题直接相关的条目）：\n{source_text}\n\n请用纯文本段落回答（不要用 markdown 格式，但必须用 [E1] [E2] 方括号标注引用）。"
+        payload = {
+            "model": self.model,
+            "temperature": 0.1,
+            "stream": True,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+        }
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream(
+                    "POST",
+                    self.api_url,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data = line[6:]
+                        if data == "[DONE]":
+                            return
+                        try:
+                            chunk = json.loads(data)
+                            content = chunk["choices"][0]["delta"].get("content", "")
+                            if content:
+                                yield content
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            continue
+        except (httpx.HTTPError, OSError):
+            yield None

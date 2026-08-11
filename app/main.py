@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.schemas import AnswerResponse, PubMedSearchRequest, QuestionRequest
-from app.services.answer_service import REJECTION_PREAMBLE, SAFETY_NOTE, AnswerService, check_safety
+from app.services.answer_service import REJECTION_PREAMBLE, SAFETY_NOTE, AnswerService, _build_context, check_safety
 from app.services.evidence_store import EvidenceChunk, EvidenceStore
 from app.services.llm_client import OpenAICompatibleLlm
 from app.services.pubmed_client import PubMedClient
@@ -181,6 +183,103 @@ async def answer_question(payload: QuestionRequest) -> AnswerResponse:
     )
     trace.finish(llm_used=(resp.answer_markdown != "" and "[E" in resp.answer_markdown), citation_count=len(resp.citations))
     return resp
+
+
+@app.post("/api/answer/stream")
+async def answer_stream(payload: QuestionRequest):
+    safety = check_safety(payload.question.strip())
+    if not safety.safe:
+        async def _blocked():
+            yield f"data: {json.dumps({'type': 'blocked', 'reason': safety.reason})}\n\n"
+        return StreamingResponse(_blocked(), media_type="text/event-stream")
+
+    # 预处理（与 /api/answer 相同）
+    pubmed_error: str | None = None
+    extra_evidence: list[EvidenceChunk] = []
+    if payload.include_pubmed:
+        query = llm.translate_to_pubmed_query(payload.question.strip()) or payload.question.strip()
+        async def _search_both():
+            nonlocal pubmed_error, extra_evidence
+            async def _s_pubmed():
+                try:
+                    articles = await pubmed.search(query, limit=6)
+                    return ("pubmed", articles)
+                except Exception as exc:
+                    return ("pubmed_error", [{"error": f"PubMed: {type(exc).__name__}"}])
+            async def _s_europe():
+                try:
+                    articles = await europe_pmc.search(query, limit=4)
+                    return ("europe_pmc", articles)
+                except Exception as exc:
+                    return ("europe_pmc_error", [{"error": f"Europe PMC: {type(exc).__name__}"}])
+            results = await asyncio.gather(_s_pubmed(), _s_europe())
+            seen: set[str] = set()
+            all_articles: list[dict[str, str]] = []
+            errors: list[str] = []
+            for source, articles in results:
+                if source.endswith("_error"):
+                    errors.append(articles[0]["error"] if articles else source)
+                    continue
+                for a in articles:
+                    pmid = a.get("pmid", "")
+                    if pmid and pmid not in seen:
+                        seen.add(pmid)
+                        all_articles.append(a)
+            extra_evidence = _rerank_chunks(_pubmed_to_chunks(all_articles))
+            if errors:
+                pubmed_error = f"部分数据源暂不可用（{'；'.join(errors)}）"
+        await _search_both()
+
+    context_question = _build_context(payload.conversation_id, payload.question.strip())
+    # 实时检索有结果就用，没有则回退本地知识库（需翻译中文查询）
+    combined = list(extra_evidence)
+    if not combined:
+        search_query = llm.translate_to_pubmed_query(payload.question.strip()) or payload.question.strip()
+        combined = store.search(search_query, limit=4)
+    if not combined:
+        async def _empty():
+            yield f"data: {json.dumps({'type': 'error', 'message': '未检索到可用证据。'})}\n\n"
+        return StreamingResponse(_empty(), media_type="text/event-stream")
+
+    citations = [
+        {
+            "label": f"E{i+1}",
+            "title": c.title,
+            "source_type": c.source_type,
+            "year": c.year,
+            "url": c.url,
+            "excerpt": c.content,
+            "evidence_level": c.evidence_level,
+        }
+        for i, c in enumerate(combined)
+    ]
+    if extra_evidence:
+        source_note = f"多源实时检索 {len(extra_evidence)} 条（PubMed + Europe PMC）"
+    else:
+        source_note = f"{store.backend} 选取 {len(combined)} 条"
+    if pubmed_error:
+        source_note += "；" + pubmed_error
+
+    async def _stream():
+        # 先发检索元数据
+        yield f"data: {json.dumps({'type': 'meta', 'retrieval_note': source_note, 'citations': citations, 'safety_note': SAFETY_NOTE})}\n\n"
+        full_text = ""
+        async for chunk in llm.stream_answer(payload.question.strip(), combined):
+            if chunk is None:
+                # LLM 不可用，走 fallback
+                fallback = answers._build_consumer_answer(payload.question.strip(), combined)
+                yield f"data: {json.dumps({'type': 'chunk', 'text': fallback})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+            full_text += chunk
+            yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
+        if full_text and not re.search(r"\[E\d+\]", full_text):
+            # 无引用，回退
+            fallback = answers._build_consumer_answer(payload.question.strip(), combined)
+            yield f"data: {json.dumps({'type': 'chunk', 'text': fallback})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 @app.post("/api/pubmed/search")

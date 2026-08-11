@@ -40,7 +40,7 @@ body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: "Noto Sans SC", system-ui, sans-serif;
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
   line-height: 1.7;
   display: flex;
   flex-direction: column;
@@ -78,9 +78,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 720px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 8px 10px 8px 22px;
+  padding: 10px 28px 10px 28px;
   background: rgba(255,255,255,.82);
   backdrop-filter: blur(18px) saturate(1.4);
   -webkit-backdrop-filter: blur(18px) saturate(1.4);
@@ -95,10 +95,10 @@ body {
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   color: var(--ink);
   text-decoration: none;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: -.01em;
   transition: opacity 0.3s var(--ease-out-expo);
@@ -106,43 +106,45 @@ body {
 .brand:hover { opacity: .75; }
 .brand-mark {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   place-items: center;
   background: var(--accent);
   color: #fff;
-  font-family: "Source Serif 4", serif;
-  font-size: 17px;
+  font-family: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Serif 4", serif;
+  font-size: 19px;
   font-weight: 700;
-  border-radius: 8px;
+  border-radius: 9px;
 }
-.topbar-actions { display: flex; align-items: center; gap: 14px; }
+.topbar-actions { display: flex; align-items: center; gap: 20px; }
 .topbar-meta {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--muted);
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   font-weight: 500;
 }
 .status-dot {
-  width: 6px; height: 6px;
+  width: 8px; height: 8px;
   border-radius: 50%;
   background: #5dba8e;
-  box-shadow: 0 0 0 3px rgba(93,186,142,.18);
+  box-shadow: 0 0 0 4px rgba(93,186,142,.15);
+  margin-left: 7px;
 }
 /* New chat - nested pill button */
 .new-chat-button {
   background: var(--mint-soft);
   border: 1px solid rgba(0,0,0,.04);
   color: var(--accent);
-  font: 500 12px "Noto Sans SC", sans-serif;
+  font: 500 12px "PingFang SC", "Microsoft YaHei", sans-serif;
   padding: 7px 16px;
   cursor: pointer;
   border-radius: 999px;
   display: none;
   transition: all 0.4s var(--ease-spring);
   letter-spacing: .01em;
+  margin-left: 7px;
 }
 .new-chat-button:hover {
   background: var(--mint);
@@ -181,7 +183,7 @@ main {
 .intro.is-compact .intro-copy { display: none; }
 
 .intro h1 {
-  font-family: "Source Serif 4", "Noto Sans SC", serif;
+  font-family: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "PingFang SC", "Microsoft YaHei", serif;
   font-size: 50px;
   font-weight: 750;
   line-height: 1.12;
@@ -272,7 +274,74 @@ main {
   vertical-align: -2px;
 }
 
-.message-answer { padding: 0 6px; }
+.message-answer { padding: 0 6px; position: relative; }
+
+/* ── Message action buttons ── */
+.message-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  opacity: .45;
+  transition: opacity 0.3s var(--ease-spring);
+}
+.message:hover .message-actions { opacity: 1; }
+.message-actions:hover { opacity: 1; }
+.msg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted-soft);
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.3s var(--ease-spring);
+  position: relative;
+}
+.msg-action-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--mint-soft);
+}
+.msg-action-btn:active { transform: scale(.95); }
+.copy-feedback {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+  white-space: nowrap;
+}
+.msg-action-btn.copied .copy-feedback { opacity: 1; }
+
+/* ── Typing dots ── */
+.typing-dots { display: inline-flex; margin-left: 2px; }
+.typing-dots i {
+  font-style: normal;
+  display: inline-block;
+  width: 4px; height: 4px;
+  background: currentColor;
+  border-radius: 50%;
+  margin-left: 3px;
+  opacity: .4;
+  animation: dotPulse 1.2s infinite;
+}
+.typing-dots i:nth-child(1) { animation-delay: 0s; }
+.typing-dots i:nth-child(2) { animation-delay: .2s; }
+.typing-dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes dotPulse {
+  0%, 60%, 100% { opacity: .3; }
+  30% { opacity: 1; }
+}
 .answer-content {
   font-size: 15px;
   color: var(--ink-soft);
@@ -462,7 +531,7 @@ main {
   border: 0;
   background: var(--accent);
   color: #fff;
-  font: 600 15px "Noto Sans SC", sans-serif;
+  font: 600 15px "PingFang SC", "Microsoft YaHei", sans-serif;
   cursor: pointer;
   min-height: 48px;
   padding: 0 24px;
@@ -551,7 +620,7 @@ footer {
   .topbar {
     top: 8px;
     max-width: calc(100vw - 32px);
-    padding: 6px 8px 6px 18px;
+    padding: 8px 16px;
   }
   main { padding: 0 16px; }
   .intro { padding: 36px 0 28px; }

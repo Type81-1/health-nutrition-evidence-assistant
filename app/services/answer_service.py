@@ -98,11 +98,13 @@ class AnswerService:
         extra_evidence = extra_evidence or []
         # 多轮对话：拼接历史上下文
         context_question = _build_context(conversation_id, question)
+        # 本地知识库为英文文献，需将中文查询翻译为英文关键词再检索
+        search_query = self.llm.translate_to_pubmed_query(question) or question
         # PubMed 有结果时跳过本地，避免混入不相关证据
         if skip_local:
             local_evidence: list[EvidenceChunk] = []
         else:
-            local_evidence = self.store.search(context_question, limit=4)
+            local_evidence = self.store.search(search_query, limit=4)
         combined = list(extra_evidence) + list(local_evidence)
         if not combined:
             note = pubmed_error or "未检索到可用证据。"

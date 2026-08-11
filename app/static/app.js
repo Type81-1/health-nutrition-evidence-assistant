@@ -6,10 +6,11 @@ const intro = document.querySelector('#intro');
 const newChatButton = document.querySelector('#new-chat-button');
 const suggestions = document.querySelectorAll('[data-question]');
 
+const REJECTION_PREAMBLE = '基于安全与伦理准则，';
 let conversationId = null;
 let messages = [];
 
-// ── 关键词高亮词表（按长度降序，避免短词破坏长词） ──
+// ── 关键词高亮词表（按长度降序）──
 const HIGHLIGHT_TERMS = [
   '随机对照试验', '系统综述', 'Meta分析', '观察性研究', '临床指南',
   '地中海饮食', 'DASH饮食', '低碳水', '生酮饮食',
@@ -30,11 +31,9 @@ function renderAnswer(text, msgIndex) {
   return text.split('\n').map(line => {
     if (!line.trim()) return '';
     let safe = escapeHtml(line);
-    // 关键词高亮（在引用链接之前，防止高亮进入 <a> 标签内）
     HIGHLIGHT_TERMS.forEach(term => {
       safe = safe.replace(new RegExp(term, 'g'), `<mark class="kw">${term}</mark>`);
     });
-    // 引用链接
     const withCitations = safe.replace(/\[E(\d+)\]/g, (_, number) => `<a class="citation-ref" href="#citation-${msgIndex}-E${number}">[E${number}]</a>`);
     return `<p>${withCitations}</p>`;
   }).join('');
@@ -64,10 +63,36 @@ function renderCitations(citations, msgIndex) {
     </article>`).join('');
 }
 
-// ── 统计每条消息中实际被引用的证据编号 ──
 function countCitedLabels(answerText) {
   const refs = answerText.match(/\[E(\d+)\]/g) || [];
   return [...new Set(refs)].length;
+}
+
+// ── 复制回答 ──
+function copyAnswer(msgIndex) {
+  const msg = messages[msgIndex];
+  if (!msg || msg._pending) return;
+  // 提取纯文本（去 HTML 标签）
+  const tmp = document.createElement('div');
+  tmp.innerHTML = renderAnswer(msg.answer, msgIndex);
+  const plain = tmp.textContent || tmp.innerText || '';
+  navigator.clipboard.writeText(plain).then(() => {
+    const btn = document.querySelector(`#copy-btn-${msgIndex}`);
+    if (btn) {
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1500);
+    }
+  }).catch(() => {});
+}
+
+// ── 重新生成 ──
+function regenerate(msgIndex) {
+  const msg = messages[msgIndex];
+  if (!msg || msg._pending) return;
+  questionInput.value = msg.question;
+  askQuestion();
+  // 滚动输入框到视野
+  questionInput.scrollIntoView({ behavior: 'smooth' });
 }
 
 function renderAllMessages() {
@@ -83,7 +108,6 @@ function renderAllMessages() {
 
   let html = '';
   messages.forEach((msg, i) => {
-    // 骨架屏：等待回答中
     if (msg._pending) {
       html += `
         <div class="message" id="msg-${i}">
@@ -110,6 +134,19 @@ function renderAllMessages() {
     const safetyHtml = msg.safetyNote
       ? `<div class="message-safety">${escapeHtml(msg.safetyNote)}</div>`
       : '';
+    // 操作按钮（仅在回答非空且未在流式传输中时显示）
+    const isStreaming = msg._streaming && !msg.answer;
+    const actionsHtml = msg.answer && !msg._pending && !msg._streaming
+      ? `<div class="message-actions">
+           <button class="msg-action-btn" id="copy-btn-${i}" onclick="copyAnswer(${i})" title="复制回答">
+             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+             <span class="copy-feedback">已复制</span>
+           </button>
+           <button class="msg-action-btn" onclick="regenerate(${i})" title="换个说法">
+             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.5 15a9 9 0 102.1-8.3L1 10"/></svg>
+           </button>
+         </div>`
+      : '';
 
     html += `
       <div class="message" id="msg-${i}">
@@ -117,6 +154,7 @@ function renderAllMessages() {
         <div class="message-answer">
           ${retrievalHtml}
           <div class="answer-content">${renderAnswer(msg.answer, i)}</div>
+          ${actionsHtml}
           ${citationsHtml}
           ${safetyHtml}
         </div>
@@ -128,12 +166,13 @@ function renderAllMessages() {
   });
 }
 
-const LOADING_STAGES = [
-  { text: '正在分析问题...', delay: 0 },
-  { text: '正在检索 PubMed...', delay: 800 },
-  { text: '正在检索本地证据...', delay: 1800 },
-  { text: '正在生成回答...', delay: 2500 },
-];
+// ── 打字动画圆点 ──
+function startTypingDots() {
+  askButton.innerHTML = '正在检索<span class="typing-dots"><i>.</i><i>.</i><i>.</i></span>';
+}
+function stopTypingDots() {
+  askButton.textContent = '获取证据';
+}
 
 async function askQuestion() {
   const question = questionInput.value.trim();
@@ -145,37 +184,106 @@ async function askQuestion() {
     conversationId = 'conv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   }
 
-  // 立即显示骨架屏
   const tempMsgIndex = messages.length;
   messages.push({ question, answer: '', citations: [], retrievalNote: '', safetyNote: '', _pending: true });
   renderAllMessages();
+  startTypingDots();
 
-  let stageIndex = 0;
-  askButton.textContent = LOADING_STAGES[0].text;
-  const stageTimer = setInterval(() => {
-    stageIndex++;
-    if (stageIndex < LOADING_STAGES.length) {
-      askButton.textContent = LOADING_STAGES[stageIndex].text;
-    }
-  }, 900);
+  // 缓存 DOM 引用，避免每次 chunk 都全量重绘
+  const answerEl = () => document.querySelector(`#msg-${tempMsgIndex} .answer-content`);
+  const retrievalEl = () => document.querySelector(`#msg-${tempMsgIndex} .message-retrieval`);
+  const questionEl = () => document.querySelector(`#msg-${tempMsgIndex} .message-question`);
+  const citationsContainer = () => document.querySelector(`#msg-${tempMsgIndex} .message-citations-wrap`);
+  const safetyEl = () => document.querySelector(`#msg-${tempMsgIndex} .message-safety-wrap`);
+  const actionsEl = () => document.querySelector(`#msg-${tempMsgIndex} .message-actions`);
 
   try {
-    const response = await fetch('/api/answer', {
+    const response = await fetch('/api/answer/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, include_pubmed: true, conversation_id: conversationId })
     });
-    clearInterval(stageTimer);
     if (!response.ok) throw new Error('回答接口暂时不可用');
-    const data = await response.json();
 
-    messages[tempMsgIndex] = {
-      question,
-      answer: data.answer_markdown,
-      citations: data.citations,
-      retrievalNote: data.retrieval_note,
-      safetyNote: data.safety_note,
-    };
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let answerText = '';
+    let streamMeta = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          switch (event.type) {
+            case 'meta':
+              streamMeta = event;
+              messages[tempMsgIndex] = {
+                question,
+                answer: '',
+                citations: event.citations || [],
+                retrievalNote: event.retrieval_note || '',
+                safetyNote: event.safety_note || '',
+                _pending: false,
+                _streaming: true,
+              };
+              // 初始渲染：显示检索来源 + 引用骨架
+              renderAllMessages();
+              break;
+            case 'chunk':
+              answerText += event.text;
+              messages[tempMsgIndex].answer = answerText;
+              messages[tempMsgIndex]._pending = false;
+              // 直接更新 DOM，不重绘整个页面
+              const aEl = answerEl();
+              if (aEl) {
+                aEl.innerHTML = renderAnswer(answerText, tempMsgIndex);
+              }
+              // 首次收到文本时隐藏骨架
+              if (answerText.length < 20) {
+                const skel = document.querySelector(`#msg-${tempMsgIndex} .skeleton`);
+                if (skel) skel.style.display = 'none';
+              }
+              break;
+            case 'blocked':
+              messages[tempMsgIndex] = {
+                question,
+                answer: REJECTION_PREAMBLE + event.reason,
+                citations: [],
+                retrievalNote: '请求已被安全拦截。',
+                safetyNote: '',
+              };
+              renderAllMessages();
+              break;
+            case 'error':
+              messages[tempMsgIndex] = {
+                question,
+                answer: event.message || '检索失败',
+                citations: [],
+                retrievalNote: '',
+                safetyNote: '',
+              };
+              renderAllMessages();
+              break;
+          }
+        } catch (_) { /* skip malformed events */ }
+      }
+    }
+    // 流结束，最终渲染引用 + 安全声明
+    messages[tempMsgIndex]._streaming = false;
+    if (messages[tempMsgIndex]._pending) {
+      messages[tempMsgIndex]._pending = false;
+      if (!messages[tempMsgIndex].answer) {
+        messages[tempMsgIndex].answer = '未能生成回答，请稍后重试。';
+      }
+    }
     renderAllMessages();
   } catch (error) {
     messages[tempMsgIndex] = {
@@ -187,9 +295,8 @@ async function askQuestion() {
     };
     renderAllMessages();
   } finally {
-    clearInterval(stageTimer);
+    stopTypingDots();
     askButton.disabled = false;
-    askButton.textContent = '获取证据';
     questionInput.focus();
   }
 }
