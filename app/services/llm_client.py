@@ -92,13 +92,14 @@ class OpenAICompatibleLlm:
         self.api_url = os.getenv("LLM_API_URL", "")
         self.api_key = os.getenv("LLM_API_KEY", "")
         self.model = os.getenv("LLM_MODEL", "")
+        self._last_error: str = ""
 
     @property
     def configured(self) -> bool:
         return bool(self.api_url and self.api_key and self.model)
 
     def _call_api(self, system_prompt: str, user_content: str, temperature: float = 0.1) -> str | None:
-        """通用 API 调用，返回模型回复文本或 None。"""
+        """通用 API 调用（含 3 次重试 + 指数退避），返回模型回复文本或 None。"""
         payload = {
             "model": self.model,
             "temperature": temperature,
@@ -107,17 +108,38 @@ class OpenAICompatibleLlm:
                 {"role": "user", "content": user_content},
             ],
         }
-        try:
-            response = httpx.post(
-                self.api_url,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=payload,
-                timeout=60,
-            )
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"].strip()
-        except (httpx.HTTPError, KeyError, IndexError, TypeError):
-            return None
+        import time as _time
+        last_error = ""
+        for attempt in range(3):
+            try:
+                response = httpx.post(
+                    self.api_url,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    json=payload,
+                    timeout=45,  # 单次 45s，重试 3 次共 135s
+                )
+                response.raise_for_status()
+                result = response.json()["choices"][0]["message"]["content"].strip()
+                if result:
+                    return result
+                last_error = "API 返回空内容"
+            except httpx.TimeoutException:
+                last_error = f"超时（第{attempt + 1}次）"
+            except httpx.HTTPStatusError as e:
+                last_error = f"HTTP {e.response.status_code}"
+                if e.response.status_code == 429:
+                    _time.sleep(3)  # 限流：等 3 秒再试
+                    continue
+                if e.response.status_code >= 500:
+                    _time.sleep(2)  # 服务器错误：等 2 秒再试
+                    continue
+                break  # 4xx 非 429 不重试
+            except Exception as e:
+                last_error = type(e).__name__
+                _time.sleep(2)
+        # 三次都失败，记录到实例供外部查询
+        self._last_error = last_error
+        return None
 
     def translate_to_pubmed_query(self, question: str) -> str | None:
         """将中文健康营养问题翻译为英文 PubMed 检索词。LLM 不可用时返回保底检索词。"""

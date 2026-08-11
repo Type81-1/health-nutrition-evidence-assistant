@@ -296,7 +296,12 @@ class AnswerService:
         if wiki_text:
             llm_question = f"以下为系统预整理的高频主题知识（来自 Wiki 知识库），请在此基础上结合检索证据回答问题：\n\n{wiki_text}\n\n---\n{context_question}"
         # LLM 用含历史的问题，fallback 用原始问题
-        answer = self.llm.answer(llm_question, combined) or self._build_consumer_answer(question, combined)
+        answer = self.llm.answer(llm_question, combined)
+        if answer is None:
+            # LLM 不可用（网络超时/API 错误），走兜底，附带错误原因
+            err_hint = self.llm._last_error or "API 调用失败"
+            fallback = self._build_consumer_answer(question, combined)
+            answer = f"⚠ 大模型暂时不可用（{err_hint}）。以下为检索到的原始证据：\n\n{fallback}"
 
         # ── 引用真实性校验（幻觉防控第一层）──
         citation_verify = verify_citations(answer, len(combined))
