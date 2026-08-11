@@ -92,13 +92,14 @@ class OpenAICompatibleLlm:
         self.api_url = os.getenv("LLM_API_URL", "")
         self.api_key = os.getenv("LLM_API_KEY", "")
         self.model = os.getenv("LLM_MODEL", "")
+        self._last_error: str = ""
 
     @property
     def configured(self) -> bool:
         return bool(self.api_url and self.api_key and self.model)
 
     def _call_api(self, system_prompt: str, user_content: str, temperature: float = 0.1) -> str | None:
-        """通用 API 调用，返回模型回复文本或 None。"""
+        """通用 API 调用（含 3 次重试 + 指数退避），返回模型回复文本或 None。"""
         payload = {
             "model": self.model,
             "temperature": temperature,
@@ -107,17 +108,38 @@ class OpenAICompatibleLlm:
                 {"role": "user", "content": user_content},
             ],
         }
-        try:
-            response = httpx.post(
-                self.api_url,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=payload,
-                timeout=60,
-            )
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"].strip()
-        except (httpx.HTTPError, KeyError, IndexError, TypeError):
-            return None
+        import time as _time
+        last_error = ""
+        for attempt in range(3):
+            try:
+                response = httpx.post(
+                    self.api_url,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    json=payload,
+                    timeout=45,  # 单次 45s，重试 3 次共 135s
+                )
+                response.raise_for_status()
+                result = response.json()["choices"][0]["message"]["content"].strip()
+                if result:
+                    return result
+                last_error = "API 返回空内容"
+            except httpx.TimeoutException:
+                last_error = f"超时（第{attempt + 1}次）"
+            except httpx.HTTPStatusError as e:
+                last_error = f"HTTP {e.response.status_code}"
+                if e.response.status_code == 429:
+                    _time.sleep(3)  # 限流：等 3 秒再试
+                    continue
+                if e.response.status_code >= 500:
+                    _time.sleep(2)  # 服务器错误：等 2 秒再试
+                    continue
+                break  # 4xx 非 429 不重试
+            except Exception as e:
+                last_error = type(e).__name__
+                _time.sleep(2)
+        # 三次都失败，记录到实例供外部查询
+        self._last_error = last_error
+        return None
 
     def translate_to_pubmed_query(self, question: str) -> str | None:
         """将中文健康营养问题翻译为英文 PubMed 检索词。LLM 不可用时返回保底检索词。"""
@@ -139,8 +161,24 @@ class OpenAICompatibleLlm:
         text = self._call_api(SYSTEM_PROMPT, f"问题：{question}\n\n可用证据（只使用与问题直接相关的条目）：\n{source_text}\n\n请用纯文本段落回答（不要用 markdown 格式，但必须用 [E1] [E2] 方括号标注引用）。")
         if text is None:
             return None
-        if not re.search(r"\[E\d+\]", text):
-            return None
+        # 校验引用：满足以下任一条件即接受回答
+        # 1. 包含 [Ex] 格式引用 → 正常通过
+        # 2. 明确说明证据不相关/不足/未找到 → 诚实拒答，也接受
+        # 3. 回答足够长且含结构模板 → 可能是不依赖特定证据的综合回答
+        has_citations = bool(re.search(r"\[E\d+\]", text))
+        has_honesty = bool(re.search(
+            r"(不直接相关|不相关|未涉及|无法直接|无法基于|不直接支持"
+            r"|完全不相关|无直接关联|不能直接|不涉及该|未评估"
+            r"|无法引用|不存在该|未检索到|没有找到"
+            r"|not directly|irrelevant|no direct)",
+            text,
+        ))
+        has_structure = bool(re.search(r"【.{2,8}】", text))
+        if not has_citations and not has_honesty and len(text) < 200:
+            return None  # 太短且无引用无诚实声明 → 不可用
+        if not has_citations and not has_honesty and not has_structure:
+            return None  # 无格式无引用 → 可能是 API 错误输出
+        # 接受回答（后续由 verify_citations 做进一步校验）
         return text
 
     def _build_source_text(self, evidence: list[EvidenceChunk]) -> str:

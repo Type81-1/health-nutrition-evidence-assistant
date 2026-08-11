@@ -10,7 +10,8 @@ from typing import Iterable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SEED_PATH = PROJECT_ROOT / "data" / "seed_evidence.json"
+SEED_PATH = PROJECT_ROOT / "data" / "seed_evidence.jsonl"  # 优先 JSONL
+_SEED_PATH_JSON = PROJECT_ROOT / "data" / "seed_evidence.json"  # 兼容旧格式
 CHROMA_PATH = PROJECT_ROOT / "data" / "chroma"
 
 # ── BM25 参数 ──
@@ -211,6 +212,75 @@ def rrf_fusion(
 
 
 # ═══════════════════════════════════════════════════════════════
+# MMR 互补筛选（避免同类文献冗余）
+# ═══════════════════════════════════════════════════════════════
+
+# 证据类型层级（用于 MMR 类型分类）
+_EVIDENCE_TYPE_MAP = {
+    "系统综述/Meta分析": "meta",
+    "临床指南/专家共识": "guideline",
+    "随机对照试验": "rct",
+    "综述": "review",
+    "观察性研究": "observational",
+    "其他研究": "other",
+    "专业指南/科学声明": "guideline",
+    "专业指南": "guideline",
+    "国际指南": "guideline",
+    "Review": "review",
+    "Trial": "rct",
+}
+
+MMR_LAMBDA = 0.6  # 相关性 vs 多样性的权重（越高越看重相关性）
+
+
+def _evidence_type(chunk: EvidenceChunk) -> str:
+    """将证据等级映射到标准类型标签。"""
+    return _EVIDENCE_TYPE_MAP.get(chunk.evidence_level, "other")
+
+
+def mmr_diversify(
+    candidates: list[EvidenceChunk],
+    limit: int = 5,
+    lmbda: float = MMR_LAMBDA,
+) -> list[EvidenceChunk]:
+    """MMR (Maximal Marginal Relevance) 互补筛选。
+
+    从候选列表中选取 top-N，在保持相关性的同时最大化证据类型多样性。
+    - 优先保证至少覆盖 meta/rct/guideline 三类不同类型
+    - 同类文献超过 1 篇时施加递减惩罚
+    """
+    if len(candidates) <= limit:
+        return candidates
+
+    selected: list[EvidenceChunk] = []
+    remaining = list(candidates)
+
+    while remaining and len(selected) < limit:
+        best_idx = 0
+        best_score = -float("inf")
+
+        for i, chunk in enumerate(remaining):
+            # 相关性分数（位置越前越高）
+            relevance = 1.0 - (i / max(len(remaining), 1))
+
+            # 多样性惩罚：与已选文献同类型的数量越多，惩罚越大
+            current_type = _evidence_type(chunk)
+            penalty = 0.0
+            for sel in selected:
+                if _evidence_type(sel) == current_type:
+                    penalty += 0.30  # 每多一篇同类型扣 0.3
+
+            mmr = lmbda * relevance - (1 - lmbda) * penalty
+            if mmr > best_score:
+                best_score = mmr
+                best_idx = i
+
+        selected.append(remaining.pop(best_idx))
+
+    return selected
+
+
+# ═══════════════════════════════════════════════════════════════
 # EvidenceStore（混合检索入口）
 # ═══════════════════════════════════════════════════════════════
 
@@ -243,8 +313,20 @@ class EvidenceStore:
     # ── 数据加载 ─────────────────────────────────────────
 
     def _load_seed(self) -> list[EvidenceChunk]:
-        records = json.loads(self.seed_path.read_text(encoding="utf-8"))
-        return [EvidenceChunk(**record) for record in records]
+        # 优先 JSONL（PPT 要求标准格式），回退 JSON
+        if self.seed_path.exists():
+            records = []
+            for line in self.seed_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+            return [EvidenceChunk(**record) for record in records]
+        if _SEED_PATH_JSON.exists():
+            records = json.loads(_SEED_PATH_JSON.read_text(encoding="utf-8"))
+            return [EvidenceChunk(**record) for record in records]
+        raise FileNotFoundError(
+            f"知识库文件未找到: {self.seed_path} 或 {_SEED_PATH_JSON}"
+        )
 
     def _initialise_chroma(self) -> None:
         try:
@@ -313,10 +395,11 @@ class EvidenceStore:
                     )
                     for idx in range(len(result["ids"][0]))
                 ]
-                # RRF 融合
-                return rrf_fusion(
-                    chroma_chunks, bm25_chunks, k=RRF_K, limit=limit
+                # RRF 融合 → MMR 互补筛选
+                fused = rrf_fusion(
+                    chroma_chunks, bm25_chunks, k=RRF_K, limit=limit * 2
                 )
+                return mmr_diversify(fused, limit=limit)
             except Exception:
                 pass
 

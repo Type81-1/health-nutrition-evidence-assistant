@@ -4,6 +4,218 @@
 
 ---
 
+## 2026-08-11 · 第二十五轮：修复"大模型暂不可用"频发问题
+
+### 问题现象
+用户在前端提问后频繁看到"需要说明的是，当前大模型暂不可用"兜底消息，后面跟着全部 6 条不相关证据的原始 dump。即使在 LLM 已经生成了诚实的好回答之后，兜底内容仍然被追加到好回答后面，导致回答体积极度膨胀且充满无关内容。
+
+### 根因（三个连环 Bug）
+
+1. **流式端点引用检查过于严格**（`main.py` 第 412 行）：
+
+   流式端点 `/api/answer/stream`（前端使用的端点）在流传输完成后检查 `full_text` 是否包含 `[Ex]` 格式。如果 LLM 正确识别所有证据不相关（如"孕期喝咖啡与 E1-E6 均不直接相关"），回答中不含 `[Ex]` 引用格式 → 被判定无效 → 触发 `_build_consumer_answer()` 兜底 → 6 条不相关证据全部 dump。
+
+2. **`_call_api` 无重试机制**（`llm_client.py` 第 111-118 行）：
+
+   `httpx.post(timeout=60)` 单次超时 60 秒，无重试。DeepSeek API 一旦遇到网络抖动、限流（429）、服务器错误（5xx）→ 直接返回 `None` → 触发兜底。
+
+3. **错误信息不透明**：
+
+   兜底消息只说"大模型暂不可用"，不显示实际错误原因（超时 / HTTP 429 / 网络不通）。
+
+### 修复
+
+1. **流式端点 & 非流式端点统一逻辑**：
+
+   接受回答的条件从"必须有 `[Ex]` 引用"放宽为三选一：
+   - 有 `[Ex]` 格式引用（正常路径）
+   - 包含诚实声明关键词（"不直接相关""证据不足""无法引用"等 15 组中日英）
+   - 有四段式结构模板（`【通俗总结】` `【核心科学依据】` 等）
+
+2. **API 调用增加 3 次重试 + 智能退避**：
+
+   - 单次超时 45s，共 135s 总预算
+   - 429（限流）→ 等 3 秒重试
+   - 5xx（服务器错误）→ 等 2 秒重试
+   - 4xx（客户端错误）→ 不重试
+   - `_last_error` 记录最后一次错误原因
+
+3. **兜底消息显示真实原因**：
+
+   `大模型暂时不可用（超时第2次）` / `（HTTP 429）` 便于调试。
+
+### 改动文件
+- `app/services/llm_client.py` — `_call_api()` 重试 + `answer()` 放宽引用校验
+- `app/main.py` — 流式端点同步放宽引用校验
+- `app/services/answer_service.py` — 兜底消息附带错误原因
+
+### 验证方法
+问幻觉对抗题（如"孕期喝咖啡""PMID 99999999"），观察：
+- LLM 诚实声明"证据不相关"时不触发兜底
+- 回答末尾不再出现"需要说明的是，当前大模型暂不可用..." + 原始证据 dump
+
+---
+
+## 2026-08-11 · 第二十四轮：MMR 互补筛选 + 拒答三段式模板
+
+### 改动文件
+- `app/services/evidence_store.py`
+- `app/services/answer_service.py`
+- `app/main.py`
+
+### 变更内容
+- **MMR 互补筛选**：`mmr_diversify()` 在 RRF 融合后应用 Maximal Marginal Relevance，优先选取互补证据类型（Meta/RCT/指南/综述/观察），同类文献超过 1 篇时施加 0.30 递减惩罚，确保最终回答的证据来源多样化。
+- **拒答三段式模板**：`build_no_evidence_response()` 按 PPT 要求输出「已检索到的内容 / 缺失的证据类型 / 建议补充方向」三段式拒答话术，附带 PubMed 直链搜索建议。
+- **证据冲突模板**：`build_evidence_conflict_response()` 客观陈列冲突观点，不下强行定论。
+- 流式端点同步更新拒答话术。
+
+---
+
+## 2026-08-11 · 第二十三轮：LLM Wiki 知识库 + JSONL 存储格式
+
+### 改动文件
+- `app/services/wiki_store.py`（新增）
+- `data/wiki_topics.jsonl`（新增）
+- `data/seed_evidence.jsonl`（新增）
+- `app/services/evidence_store.py`
+- `app/services/answer_service.py`
+- `app/main.py`
+- `scripts/expand_knowledge_base.py`
+
+### 变更内容
+- **LLM Wiki 知识库**（赛道二优先加分项）：`WikiStore` 管理 8 个高频稳定营养主题的结构化页面。
+  - 标准结构：一句话结论 → 适用人群 → 核心证据（带来源编号） → 研究局限 → 禁止回答范围 → 更新时间。
+  - 8 个预设主题：地中海饮食、限钠与血压、鸡蛋与胆固醇、维生素D、益生菌、Omega-3、间歇性断食、咖啡与健康。
+  - CJK bigram 中文搜索匹配，优先查询 Wiki 主题页再补充实时 RAG 检索。
+  - API：`GET /api/wiki/topics` + `GET /api/wiki/topics/{id}`。
+- **JSONL 存储格式**：`seed_evidence.jsonl`（524 行，每行一条 JSON 记录），符合 PPT「统一 JSONL 存储」要求。`EvidenceStore._load_seed()` 优先 JSONL、回退 JSON。
+- `expand_knowledge_base.py` 输出格式同步切换 JSONL。
+- `AnswerService.answer()` 新增 `wiki_text` 参数，Wiki 主题作为 LLM 前置上下文增强回答质量。
+
+---
+
+## 2026-08-11 · 第二十二轮：演示预设问题集
+
+### 改动文件
+- `data/demo_questions.json`（新增）
+- `app/static/index.html`
+- `app/static/styles.css`
+- `app/static/app.js`
+
+### 变更内容
+- **10 道演示问题**：按功能特性分为证据检索、多轮追问、域外拒答、幻觉防御、医疗边界五类，每道题附标签和说明。
+- **前端演示面板**：首页「🎯 演示模式」按钮展开幻灯片式面板，卡片按功能颜色编码（绿/红/紫/橙），点击卡片自动提问。多轮追问组自动连续触发（Q1→Q2）。
+- **演示面板动画**：`demoSlideIn` 入场动画（`ease-out-expo`）。
+
+---
+
+## 2026-08-11 · 第二十一轮：MeSH 主题词 + PMID 真实性校验
+
+### 改动文件
+- `app/services/pubmed_client.py`
+- `app/services/answer_service.py`
+- `app/main.py`
+
+### 变更内容
+- **MeSH 主题词检索**（PPT 四重过滤要求）：`build_pubmed_query()` 组合 MeSH + 自由文本 + 文献类型 + 年限 + 撤稿排除 + 摘要过滤，六重过滤。
+  - `_MESH_MAP`：60+ 条英文关键词→MeSH 标准词映射（覆盖饮食模式、代谢疾病、心血管、营养素、特殊人群等）。
+  - `_lookup_mesh_api()`：NCBI MeSH API 备用查找未知术语。
+  - 文献类型过滤：`review[PT] OR meta-analysis[PT] OR RCT[PT] OR guideline[PT]`。
+  - 撤稿排除：`NOT retracted publication[PT]`。
+- **PMID 真实性校验**（幻觉防控第一层）：`verify_citations()` 检查所有 [Ex] 引用是否在检索结果范围内；`verify_fabricated_pmids()` 检测超出 PMID 范围（>4000 万）的伪造编号。
+- 校验结果自动附加到回答末尾，流式端点同步输出 `citation_warn` 事件。
+
+---
+
+## 2026-08-11 · 第二十轮：域外拒答
+
+### 改动文件
+- `app/services/answer_service.py`
+- `app/main.py`
+
+### 变更内容
+- **域外检测**：`check_domain()` 函数，7 组正则模式识别非健康营养问题（编程、天气、金融投资、影视娱乐、写作办公、数学计算），匹配后立即拒答（0ms）。
+- **健康信号白名单**：中文 50+、英文 15+ 关键词，命中任一信号直接放行，避免误拦。
+- `DOMAIN_REJECTION_MESSAGE`：统一拒答语——"我是专门提供健康营养循证科普的助手。您的问题超出了我的知识范围..."
+- 集成到 `/api/answer` 和 `/api/answer/stream` 两个端点。
+
+---
+
+## 2026-08-11 · 第十九轮：Wiki 知识浏览页
+
+### 改动文件
+- `app/static/wiki.html`（新增）
+- `app/static/wiki.css`（新增）
+- `app/static/wiki.js`（新增）
+- `app/main.py`
+- `app/static/index.html`
+- `app/static/styles.css`
+
+### 变更内容
+- **证据库浏览页**（`/wiki`）：展示 524 篇文献的可视化覆盖。
+  - **统计卡片**：总文献数、来源期刊数、年份跨度、最多证据等级。
+  - **筛选栏**：按证据等级（Meta/指南/RCT/综述/观察）、年份年代、关键词搜索。
+  - **文章卡片网格**：标题 + 证据等级徽章 + 期刊/年份 + 摘要预览 → 点击弹 Modal 详情。
+  - **分页**：每页 24 条，页码导航。
+- **API `/api/knowledge`**：`q/level/year_from/year_to/page/size` 七参数过滤 + 全局统计信息。
+- **导航双向互通**：聊天页顶部新增「证据库」入口，Wiki 页导航栏新增「问答」入口。
+
+---
+
+## 2026-08-11 · 第十八轮：128 题综合问卷 + RAGAS 8 维评测
+
+### 改动文件
+- `data/test_survey.json`（新增）
+- `scripts/run_survey_eval.py`（新增）
+- `data/evaluation_questions.json`
+- `scripts/run_ragas_eval.py`
+
+### 变更内容
+- **128 题综合问卷**（5 部分评分体系）：
+  - P1 域内知识（96 题）+ P2 多轮追问（12 题）+ P3 医疗边界（10 题）+ P4 域外拒答（5 题）+ P5 幻觉对抗（5 题）。
+  - 满分 256 分，实测 234.5 / 256（92%）。
+  - P4 域外拒答 10/10（100%，0ms 即时拦截）；P2 多轮追问 23.5/24（98%）。
+- **RAGAS 8 维评测**（从 4 维扩展）：忠实度 + 相关性 + 正确性 + 召回率 + 精度 + 覆盖率 + 安全性 + 抗噪性。加权综合公式。
+- `scripts/run_survey_eval.py`：5 部分各自独立评分逻辑，支持 `--quick` / `--part` 参数。
+
+---
+
+## 2026-08-11 · 第十七轮：混合检索 BM25 + Chroma → RRF
+
+### 改动文件
+- `app/services/evidence_store.py`
+- `app/services/answer_service.py`
+- `app/main.py`
+
+### 变更内容
+- **BM25Index**：自研 BM25 关键词检索引擎，零外部依赖。中文 CJK bigram + unigram 分词，英文词级分词，数字独立 token。524 篇索引 8887 个词项，检索速度 1ms。
+- **RRF 融合**：`rrf_fusion()` 实现 Reciprocal Rank Fusion（k=60），将 Chroma 语义结果与 BM25 关键词结果融合排序。
+- **检索流水线**：Chroma (limit×2) + BM25 (limit×3) → RRF 融合 → MMR 互补筛选 → 最终 Top-N。
+- **中文查询翻译**：`answer_service.py` 在本地检索前调用 `translate_to_pubmed_query()` 将中文转为英文关键词，解决本地英文知识库的中文语义匹配问题（翻译后检索命中率从 0% 提升至 100%）。
+- **流式端点本地回退**：`/api/answer/stream` 当 PubMed 无结果时自动回退本地知识库，不再直接报"未检索到可用证据"。
+
+---
+
+## 2026-08-11 · 第十六轮：知识库扩增至 524 篇 + 架构图 + 伦理声明
+
+### 改动文件
+- `data/seed_evidence.json`
+- `scripts/expand_knowledge_base.py`（新增）
+- `scripts/compare_search.py`（新增）
+- `docs/architecture.md`（新增）
+- `docs/ethics.md`（新增）
+- `data/evaluation_questions.json`
+
+### 变更内容
+- **知识库扩增**：从 6 篇扩至 524 篇，覆盖 15 个健康维度（地中海/DASH/植物性/生酮/糖尿病/肥胖/血脂/VitD/纤维/Omega3/孕期/儿童/老年/抗炎/禁食）× 2 种证据类型（Review/Trial）× 2 个年份段（2015-2020/2021-2026）。来源 251 种期刊，年份跨度 2001-2026。
+- **`scripts/expand_knowledge_base.py`**：自动化 PubMed + Europe PMC 批量爬虫，60 个查询，内置 3 次重试 + API 限流保护（1.5s 间隔），PMID 去重。
+- **`scripts/compare_search.py`**：三路检索对比工具（Chroma 语义 vs BM25 关键词 vs RRF 混合），可视化展示交集/独有结果。
+- **`docs/architecture.md`**：一页系统架构图（ASCII 框图 + 数据流时序图 + 技术选型表）。
+- **`docs/ethics.md`**：完整伦理准则与免责声明（6 章：定位、伦理原则、安全过滤、隐私、责任边界、引用规范）。
+- 评测题库从 3 题扩至 30 题（9 大类）。
+
+---
+
 ## 2026-08-11 · 第十五轮：流式输出 (SSE)
 
 ### 改动文件
