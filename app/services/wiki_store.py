@@ -145,6 +145,11 @@ class WikiStore:
             score += title_overlap * 5
             scored.append((score, topic))
         scored.sort(key=lambda x: x[0], reverse=True)
+        # 最低阈值：避免无健康关键词的查询误匹配 Wiki 主题
+        # 例如 "PMID 99999999" 不应匹配到益生菌主题
+        best_score = scored[0][0] if scored else 0
+        if best_score < 3:  # 至少 3 个 bigram 命中或 1 个标题命中
+            return []
         return [t for s, t in scored[:top_n] if s > 0]
 
     def upsert_topic(self, topic: WikiTopic) -> None:
