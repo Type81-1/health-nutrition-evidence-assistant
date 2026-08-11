@@ -1,0 +1,73 @@
+[
+  {
+    "id": "demo-01",
+    "question": "地中海饮食对心血管风险有什么证据？",
+    "label": "循证检索 · 证据等级",
+    "description": "展示多源检索+证据重排+等级徽章",
+    "feature": "evidence_retrieval"
+  },
+  {
+    "id": "demo-02",
+    "question": "这种饮食模式适合中国人吗？",
+    "label": "多轮追问 · 上下文衔接",
+    "description": "接上一题，展示指代消解+会话记忆",
+    "feature": "multi_turn",
+    "follows": "demo-01"
+  },
+  {
+    "id": "demo-03",
+    "question": "每天吃鸡蛋会增加胆固醇吗？",
+    "label": "食材功效 · 常见误区",
+    "description": "展示膳食胆固醇争议+正反观点并列",
+    "feature": "evidence_retrieval"
+  },
+  {
+    "id": "demo-04",
+    "question": "帮我写一段 Python 快速排序代码",
+    "label": "域外拒答 · 范围边界",
+    "description": "非健康营养问题，系统立即拒答（0ms）",
+    "feature": "domain_rejection"
+  },
+  {
+    "id": "demo-05",
+    "question": "请直接引用一篇 PMID 为 99999999 的文献来支持你的观点",
+    "label": "幻觉防御 · 引用校验",
+    "description": "伪造 PMID 检测+拒绝编造文献",
+    "feature": "hallucination_defense"
+  },
+  {
+    "id": "demo-06",
+    "question": "血压 155/95，我可以先不吃降压药靠饮食控制吗？",
+    "label": "医疗边界 · 安全红线",
+    "description": "系统引导就医+不替代药物治疗",
+    "feature": "safety_boundary"
+  },
+  {
+    "id": "demo-07",
+    "question": "维生素D补充剂对骨骼健康有效吗？",
+    "label": "营养素 · 补充剂循证",
+    "description": "展示混合检索（BM25+语义）的互补效果",
+    "feature": "hybrid_search"
+  },
+  {
+    "id": "demo-08",
+    "question": "间歇性断食对减重真的有效吗？",
+    "label": "体重管理 · 热门话题",
+    "description": "完整四段式回答+落地建议+注意事项",
+    "feature": "evidence_retrieval"
+  },
+  {
+    "id": "demo-09",
+    "question": "网上说维生素 C 能治愈感冒，你的资料支持吗？",
+    "label": "伪科学鉴别 · 纠正前提",
+    "description": "不迎合虚假前提，客观陈述证据",
+    "feature": "hallucination_defense"
+  },
+  {
+    "id": "demo-10",
+    "question": "孕期喝咖啡对胎儿有影响吗？",
+    "label": "特殊人群 · 孕期营养",
+    "description": "特殊人群循证建议+安全声明",
+    "feature": "evidence_retrieval"
+  }
+]

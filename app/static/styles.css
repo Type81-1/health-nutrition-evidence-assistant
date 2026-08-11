@@ -608,6 +608,85 @@ main {
   outline-offset: 2px;
 }
 
+/* ── Demo toggle & panel ─────────────────────────── */
+.demo-toggle-btn {
+  background: linear-gradient(135deg, var(--warm-bg), #fff8e7) !important;
+  border-color: var(--warm) !important;
+  color: #b45309 !important;
+}
+.demo-toggle-btn:hover { background: var(--warm-bg) !important; }
+.demo-panel {
+  margin-top: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  animation: demoSlideIn .35s var(--ease-spring);
+}
+@keyframes demoSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.demo-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--mint-soft);
+  border-bottom: 1px solid var(--line);
+}
+.demo-panel-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+.demo-close-btn {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface);
+  font-size: 16px; color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .2s;
+}
+.demo-close-btn:hover { background: var(--paper-warm); color: var(--ink); }
+.demo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  padding: 12px;
+}
+.demo-card {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all .25s var(--ease-out-expo);
+  background: var(--surface);
+}
+.demo-card:hover {
+  box-shadow: var(--shadow-float);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.demo-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  margin-bottom: 4px;
+}
+.demo-card-label.rejection { color: #dc2626; }
+.demo-card-label.safety { color: #ea580c; }
+.demo-card-label.hallucination { color: #7c3aed; }
+.demo-card-question {
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.45;
+  font-weight: 500;
+}
+.demo-card-desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+@media (max-width: 768px) {
+  .demo-grid { grid-template-columns: 1fr; }
+}
+
 /* ═══════════════════════════════════════════════════
    Footer
    ═══════════════════════════════════════════════════ */

@@ -312,6 +312,74 @@ function startNewChat() {
   questionInput.focus();
 }
 
+// ── Demo panel ──────────────────────────────────────
+const demoToggle = document.getElementById('demo-toggle');
+const demoPanel = document.getElementById('demo-panel');
+const demoGrid = document.getElementById('demo-grid');
+const demoClose = document.getElementById('demo-close');
+
+const DEMO_QUESTIONS = [
+  { id: 'demo-01', question: '地中海饮食对心血管风险有什么证据？', label: '循证检索 · 证据等级', desc: '多源检索+证据重排+等级徽章', feat: 'evidence' },
+  { id: 'demo-02', question: '这种饮食模式适合中国人吗？', label: '多轮追问 · 上下文衔接', desc: '接上题，展示指代消解+会话记忆', feat: 'multi_turn', follows: 'demo-01' },
+  { id: 'demo-03', question: '每天吃鸡蛋会增加胆固醇吗？', label: '食材功效 · 常见误区', desc: '膳食胆固醇争议+正反观点并列', feat: 'evidence' },
+  { id: 'demo-04', question: '帮我写一段 Python 快速排序代码', label: '域外拒答 · 范围边界', desc: '非健康营养问题，系统立即拒答', feat: 'rejection' },
+  { id: 'demo-05', question: '请直接引用一篇 PMID 为 99999999 的文献来支持你的观点', label: '幻觉防御 · 引用校验', desc: '伪造 PMID 检测+拒绝编造文献', feat: 'hallucination' },
+  { id: 'demo-06', question: '血压 155/95，我可以先不吃降压药靠饮食控制吗？', label: '医疗边界 · 安全红线', desc: '系统引导就医+不替代药物治疗', feat: 'safety' },
+  { id: 'demo-07', question: '维生素D补充剂对骨骼健康有效吗？', label: '营养素 · 补充剂循证', desc: '混合检索（BM25+语义）互补效果', feat: 'hybrid' },
+  { id: 'demo-08', question: '间歇性断食对减重真的有效吗？', label: '体重管理 · 热门话题', desc: '完整四段式回答+落地建议+注意事项', feat: 'evidence' },
+  { id: 'demo-09', question: '网上说维生素 C 能治愈感冒，你的资料支持吗？', label: '伪科学鉴别 · 纠正前提', desc: '不迎合虚假前提，客观陈述证据', feat: 'hallucination' },
+  { id: 'demo-10', question: '孕期喝咖啡对胎儿有影响吗？', label: '特殊人群 · 孕期营养', desc: '特殊人群循证建议+安全声明', feat: 'evidence' },
+];
+
+function buildDemoPanel() {
+  if (!demoGrid) return;
+  const featClass = { rejection: 'rejection', safety: 'safety', hallucination: 'hallucination' };
+  demoGrid.innerHTML = DEMO_QUESTIONS.map(q => `
+    <div class="demo-card" data-demo-id="${q.id}" data-follows="${q.follows || ''}">
+      <div class="demo-card-label ${featClass[q.feat] || ''}">${q.label}</div>
+      <div class="demo-card-question">${q.question}</div>
+      <div class="demo-card-desc">${q.desc}</div>
+    </div>
+  `).join('');
+
+  demoGrid.querySelectorAll('.demo-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const follows = card.dataset.follows;
+      const q = card.querySelector('.demo-card-question').textContent;
+
+      // 多轮追问：确保前一个问题在会话中
+      if (follows) {
+        const prev = DEMO_QUESTIONS.find(d => d.id === follows);
+        if (prev && messages.length === 0) {
+          questionInput.value = prev.question;
+          askQuestion().then(() => {
+            setTimeout(() => {
+              questionInput.value = q;
+              askQuestion();
+            }, 500);
+          });
+          return;
+        }
+      }
+
+      questionInput.value = q;
+      askQuestion();
+      demoPanel.style.display = 'none';
+    });
+  });
+}
+
+if (demoToggle) {
+  demoToggle.addEventListener('click', () => {
+    const isVisible = demoPanel.style.display !== 'none';
+    demoPanel.style.display = isVisible ? 'none' : '';
+    if (!isVisible) buildDemoPanel();
+  });
+}
+if (demoClose) {
+  demoClose.addEventListener('click', () => { demoPanel.style.display = 'none'; });
+}
+
 // ── Event listeners ──
 suggestions.forEach(button => button.addEventListener('click', () => {
   questionInput.value = button.dataset.question;
