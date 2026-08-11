@@ -52,6 +52,56 @@ def check_safety(question: str) -> SafetyCheck:
 
 REJECTION_PREAMBLE = "基于安全与伦理准则，"
 
+# ── 域外拒答 ──────────────────────────────────────────────────
+# 检测明显不属于健康营养领域的问题
+_DOMAIN_REJECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # 编程/技术
+    (re.compile(r"(写|帮我写|编写|生成).{0,4}(代码|程序|脚本|算法|函数|排序|Python|Java|React|HTML|CSS|SQL|代码片段)"), "本工具专注于健康营养科普，不提供编程技术服务。"),
+    (re.compile(r"(前端|后端|API|接口|bug|报错|异常|编译|部署|服务器|数据库|框架|组件|npm|pip|git|docker)"), "本工具专注于健康营养科普，不提供编程技术服务。"),
+    # 天气/交通
+    (re.compile(r"(今天|明天|后天|本周|周末).{0,6}(天气|气温|下雨|刮风|晴|阴|多云)"), "本工具不提供天气查询服务，请使用天气类应用。"),
+    # 金融/投资
+    (re.compile(r"(股票|基金|理财|投资|炒股|期货|加密货币|比特币|A股|港股|美股|收益|涨跌|买入|卖出|持仓)"), "本工具专注于健康营养科普，不提供金融投资建议。"),
+    # 娱乐/电影
+    (re.compile(r"(推荐|介绍).{0,15}(电影|电视剧|综艺|动漫|小说|游戏|音乐|歌|剧)"), "本工具专注于健康营养科普，不提供影视娱乐推荐。"),
+    # 通用任务
+    (re.compile(r"(帮我|替我|给我).{0,4}(翻译|润色|写邮件|写作文|写论文|写文章|写作业|做PPT|做Excel|P图|剪视频)"), "本工具专注于健康营养科普，不提供通用写作/办公服务。"),
+    # 数学计算
+    (re.compile(r"^(计算|求解|求解方程|求导|积分|矩阵|概率).*\d"), "本工具专注于健康营养科普，不提供数学计算服务。"),
+]
+
+DOMAIN_REJECTION_MESSAGE = "我是专门提供健康营养循证科普的助手。您的问题超出了我的知识范围，请提出与饮食、营养、慢性病预防等相关的问题，我会尽力基于研究证据为您解读。"
+
+
+def check_domain(question: str) -> SafetyCheck:
+    """检测问题是否超出健康营养领域。在域内返回 SafetyCheck(safe=True)。"""
+    # 如果问题包含明显的健康/营养关键词，放行
+    health_signals = [
+        "营养", "饮食", "吃", "喝", "食", "减肥", "减重", "体重", "胖", "瘦",
+        "血压", "血糖", "血脂", "胆固醇", "糖尿病", "心血管", "心脏", "血管",
+        "维生素", "蛋白", "脂肪", "碳水", "纤维", "矿物", "钙", "铁", "锌",
+        "痛风", "尿酸", "炎症", "抗氧化", "肠道", "益生菌", "过敏",
+        "孕期", "孕妇", "儿童", "老年", "发育", "骨骼", "关节",
+        "运动", "锻炼", "健身", "训练", "禁食", "断食", "代餐", "生酮",
+        "食谱", "食谱", "做饭", "烹饪", "调料", "食材", "蔬菜", "水果", "肉类",
+        "食品", "安全", "添加剂", "甜味剂", "代糖", "糖",
+        "diet", "nutrition", "health", "food", "supplement",
+        "obesity", "diabetes", "hypertension", "cholesterol",
+        "vitamin", "mineral", "exercise", "weight",
+        "carb", "protein", "fat", "fiber", "calorie",
+    ]
+    q_lower = question.lower()
+    if any(sig in q_lower for sig in health_signals):
+        return SafetyCheck(safe=True)
+
+    # 检查是否命中域外模式
+    for pattern, reason in _DOMAIN_REJECTION_PATTERNS:
+        if pattern.search(question):
+            return SafetyCheck(safe=False, reason=reason)
+
+    # 兜底：没有健康信号也没有命中域外模式 → 放行（可能是简短追问）
+    return SafetyCheck(safe=True)
+
 # ── 简易会话记忆（进程内，重启丢失；仅用于多轮追问上下文）──
 _conversations: dict[str, list[dict[str, str]]] = {}
 _MAX_HISTORY_TURNS = 5
@@ -95,6 +145,15 @@ class AnswerService:
         skip_local: bool = False,
         conversation_id: str | None = None,
     ) -> AnswerResponse:
+        # 域外检测：非健康营养问题直接拒答
+        domain_check = check_domain(question)
+        if not domain_check.safe:
+            return AnswerResponse(
+                answer_markdown=f"{DOMAIN_REJECTION_MESSAGE}",
+                citations=[],
+                safety_note=SAFETY_NOTE,
+                retrieval_note=f"请求已拒绝：{domain_check.reason}",
+            )
         extra_evidence = extra_evidence or []
         # 多轮对话：拼接历史上下文
         context_question = _build_context(conversation_id, question)

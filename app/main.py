@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.schemas import AnswerResponse, PubMedSearchRequest, QuestionRequest
-from app.services.answer_service import REJECTION_PREAMBLE, SAFETY_NOTE, AnswerService, _build_context, check_safety
+from app.services.answer_service import REJECTION_PREAMBLE, SAFETY_NOTE, DOMAIN_REJECTION_MESSAGE, AnswerService, _build_context, check_safety, check_domain
 from app.services.evidence_store import EvidenceChunk, EvidenceStore
 from app.services.llm_client import OpenAICompatibleLlm
 from app.services.pubmed_client import PubMedClient
@@ -125,6 +125,16 @@ def health() -> dict[str, str]:
 @app.post("/api/answer", response_model=AnswerResponse)
 async def answer_question(payload: QuestionRequest) -> AnswerResponse:
     trace = QueryTrace(payload.question.strip(), payload.conversation_id)
+    # 域外检测
+    domain = check_domain(payload.question.strip())
+    if not domain.safe:
+        trace.mark_blocked(domain.reason)
+        return AnswerResponse(
+            answer_markdown=f"{DOMAIN_REJECTION_MESSAGE}",
+            citations=[],
+            safety_note=SAFETY_NOTE,
+            retrieval_note=f"请求已拒绝：{domain.reason}",
+        )
     safety = check_safety(payload.question.strip())
     if not safety.safe:
         trace.mark_blocked(safety.reason)
@@ -187,6 +197,13 @@ async def answer_question(payload: QuestionRequest) -> AnswerResponse:
 
 @app.post("/api/answer/stream")
 async def answer_stream(payload: QuestionRequest):
+    # 域外检测
+    domain = check_domain(payload.question.strip())
+    if not domain.safe:
+        async def _domain_blocked():
+            yield f"data: {json.dumps({'type': 'blocked', 'reason': DOMAIN_REJECTION_MESSAGE})}\n\n"
+        return StreamingResponse(_domain_blocked(), media_type="text/event-stream")
+
     safety = check_safety(payload.question.strip())
     if not safety.safe:
         async def _blocked():
