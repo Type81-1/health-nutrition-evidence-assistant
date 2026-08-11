@@ -6,6 +6,8 @@ const intro = document.querySelector('#intro');
 const newChatButton = document.querySelector('#new-chat-button');
 const suggestions = document.querySelectorAll('[data-question]');
 
+// v20260811b — new-chat fix
+console.log('[食证] app.js v20260811b loaded');
 const REJECTION_PREAMBLE = '基于安全与伦理准则，';
 let conversationId = null;
 let messages = [];
