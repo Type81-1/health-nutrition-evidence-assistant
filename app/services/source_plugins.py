@@ -17,39 +17,7 @@ class BatchDownloadResult:
 
 
 class EuropePmcOpenAccessPlugin:
-    """可独立复用的数据源插件：实时检索 + 批量获取 Europe PMC 的开放获取全文 XML。"""
-
-    async def search(self, query: str, limit: int = 5, max_age_years: int = 10) -> list[dict[str, str]]:
-        """实时检索 Europe PMC，返回与 PubMed 相同格式的文献列表。"""
-        from datetime import datetime
-
-        current_year = datetime.now().year
-        query_with_filter = f"({query}) AND (PUB_YEAR:[{current_year - max_age_years} TO {current_year}])"
-        params = {
-            "query": query_with_filter,
-            "format": "json",
-            "pageSize": str(min(limit, 25)),
-            "resultType": "core",
-            "sort": "RELEVANCE",
-        }
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{EUROPE_PMC_BASE}/search", params=params)
-            resp.raise_for_status()
-            results = resp.json().get("resultList", {}).get("result", [])[:limit]
-        articles: list[dict[str, str]] = []
-        for r in results:
-            pmid = r.get("pmid", "")
-            pmcid = r.get("pmcid", "")
-            articles.append({
-                "pmid": pmid or pmcid,
-                "title": r.get("title", "Untitled"),
-                "abstract": r.get("abstractText") or "Europe PMC 未提供摘要。",
-                "journal": r.get("journalTitle", ""),
-                "year": r.get("pubYear", ""),
-                "url": f"https://europepmc.org/article/MED/{pmid}" if pmid else f"https://europepmc.org/article/PMC/{pmcid}",
-                "_source": "europe_pmc",
-            })
-        return articles
+    """可独立复用的数据源插件：批量获取 Europe PMC 的开放获取全文 XML。"""
 
     async def download(self, query: str, limit: int, output_dir: Path) -> BatchDownloadResult:
         output_dir.mkdir(parents=True, exist_ok=True)
