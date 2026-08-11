@@ -409,8 +409,17 @@ async def answer_stream(payload: QuestionRequest):
                 return
             full_text += chunk
             yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
-        if full_text and not re.search(r"\[E\d+\]", full_text):
-            # 无引用，回退
+        has_cit = bool(re.search(r"\[E\d+\]", full_text))
+        has_honesty = bool(re.search(
+            r"(不直接相关|不相关|未涉及|无法直接|无法基于|不直接支持"
+            r"|完全不相关|无直接关联|不能直接|不涉及该|未评估"
+            r"|无法引用|不存在该|未检索到|没有找到"
+            r"|not directly|irrelevant|no direct)",
+            full_text,
+        ))
+        has_structure = bool(re.search(r"【.{2,8}】", full_text))
+        if full_text and not has_cit and not has_honesty and not has_structure:
+            # 无效回答：无引用、无诚实声明、无结构 → 兜底
             fallback = answers._build_consumer_answer(payload.question.strip(), combined)
             yield f"data: {json.dumps({'type': 'chunk', 'text': fallback})}\n\n"
         # 引用真实性校验（幻觉防控第一层）
