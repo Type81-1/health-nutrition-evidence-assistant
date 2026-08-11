@@ -621,7 +621,7 @@ main {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   overflow: hidden;
-  animation: demoSlideIn .35s var(--ease-spring);
+  animation: demoSlideIn .35s var(--ease-out-expo);
 }
 @keyframes demoSlideIn {
   from { opacity: 0; transform: translateY(-8px); }

@@ -254,9 +254,17 @@ async def main():
         bar = "█" * min(year_dist[y], 40)
         print(f"  {y}: {year_dist[y]:>3}  {bar}")
 
-    # 保存
-    seed_path = ROOT / "data" / "seed_evidence.json"
-    existing = json.loads(seed_path.read_text("utf-8")) if seed_path.exists() else []
+    # 保存为 JSONL 格式（PPT 要求标准格式）
+    seed_path = ROOT / "data" / "seed_evidence.jsonl"
+    existing = []
+    if seed_path.exists():
+        for line in seed_path.read_text("utf-8").splitlines():
+            line = line.strip()
+            if line:
+                existing.append(json.loads(line))
+    elif (ROOT / "data" / "seed_evidence.json").exists():
+        existing = json.loads((ROOT / "data" / "seed_evidence.json").read_text("utf-8"))
+
     new_chunks = []
     for a in all_articles:
         src = "Europe PMC" if a.get("_source") == "europe_pmc" else "PubMed"
@@ -273,11 +281,15 @@ async def main():
     all_seed = existing + new_chunks
     print(f"\n合并: {len(existing)} (旧) + {len(new_chunks)} (新) = {len(all_seed)} 篇")
 
+    # 备份旧文件
     if seed_path.exists():
         import shutil as _shutil
-        _shutil.move(str(seed_path), str(seed_path.with_suffix(".json.bak")))
-    seed_path.write_text(json.dumps(all_seed, ensure_ascii=False, indent=2), "utf-8")
-    print(f"已写入: {seed_path}")
+        _shutil.move(str(seed_path), str(seed_path.with_suffix(".jsonl.bak")))
+    # JSONL: 每行一条记录
+    with open(seed_path, "w", encoding="utf-8") as f:
+        for record in all_seed:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    print(f"已写入: {seed_path} (JSONL 格式)")
 
     # 重建 Chroma
     chroma_path = ROOT / "data" / "chroma"

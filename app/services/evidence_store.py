@@ -10,7 +10,8 @@ from typing import Iterable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SEED_PATH = PROJECT_ROOT / "data" / "seed_evidence.json"
+SEED_PATH = PROJECT_ROOT / "data" / "seed_evidence.jsonl"  # 优先 JSONL
+_SEED_PATH_JSON = PROJECT_ROOT / "data" / "seed_evidence.json"  # 兼容旧格式
 CHROMA_PATH = PROJECT_ROOT / "data" / "chroma"
 
 # ── BM25 参数 ──
@@ -243,8 +244,20 @@ class EvidenceStore:
     # ── 数据加载 ─────────────────────────────────────────
 
     def _load_seed(self) -> list[EvidenceChunk]:
-        records = json.loads(self.seed_path.read_text(encoding="utf-8"))
-        return [EvidenceChunk(**record) for record in records]
+        # 优先 JSONL（PPT 要求标准格式），回退 JSON
+        if self.seed_path.exists():
+            records = []
+            for line in self.seed_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+            return [EvidenceChunk(**record) for record in records]
+        if _SEED_PATH_JSON.exists():
+            records = json.loads(_SEED_PATH_JSON.read_text(encoding="utf-8"))
+            return [EvidenceChunk(**record) for record in records]
+        raise FileNotFoundError(
+            f"知识库文件未找到: {self.seed_path} 或 {_SEED_PATH_JSON}"
+        )
 
     def _initialise_chroma(self) -> None:
         try:
