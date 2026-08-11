@@ -132,6 +132,94 @@ def _remember(conversation_id: str | None, question: str, answer: str) -> None:
         _conversations[conversation_id] = _conversations[conversation_id][-_MAX_HISTORY_TURNS:]
 
 
+# ── 引用真实性校验（幻觉防控第一层）──────────────────────────
+# PPT 要求：校验引用 ID 真实性，拦截不存在的虚假文献
+
+@dataclass
+class CitationVerification:
+    valid: bool
+    total_refs: int
+    valid_refs: int
+    fabricated_refs: list[str]
+    reason: str = ""
+
+
+def verify_citations(answer: str, evidence_count: int) -> CitationVerification:
+    """校验回答中的 [Ex] 引用是否指向真实存在的证据。
+
+    规则：
+    - [E1] 到 [E{evidence_count}] 为合法引用
+    - 超出范围或格式异常的引用视为可疑
+    - 若无证据但回答包含 [Ex] → 幻觉风险
+    """
+    refs = re.findall(r"\[E(\d+)\]", answer)
+    if not refs:
+        return CitationVerification(
+            valid=True if evidence_count == 0 else False,
+            total_refs=0,
+            valid_refs=0,
+            fabricated_refs=[],
+            reason="回答未包含任何引用标注" if evidence_count > 0 else "",
+        )
+
+    valid_refs: list[int] = []
+    fabricated: list[str] = []
+    for ref_str in refs:
+        num = int(ref_str)
+        if 1 <= num <= evidence_count:
+            valid_refs.append(num)
+        else:
+            fabricated.append(f"[E{ref_str}]")
+
+    # 如无证据但回答含引用 → 明确幻觉
+    if evidence_count == 0 and refs:
+        return CitationVerification(
+            valid=False,
+            total_refs=len(refs),
+            valid_refs=0,
+            fabricated_refs=[f"[E{r}]" for r in refs],
+            reason=f"无检索证据，但回答包含 {len(refs)} 个引用标注 — 幻觉风险",
+        )
+
+    # 虚假引用比例 > 0 → 无效
+    if fabricated:
+        return CitationVerification(
+            valid=False,
+            total_refs=len(refs),
+            valid_refs=len(valid_refs),
+            fabricated_refs=fabricated,
+            reason=f"{len(fabricated)} 个引用 [{', '.join(fabricated[:3])}] 不在检索结果中 — 疑似编造",
+        )
+
+    return CitationVerification(
+        valid=True,
+        total_refs=len(refs),
+        valid_refs=len(valid_refs),
+        fabricated_refs=[],
+        reason="",
+    )
+
+
+def verify_fabricated_pmids(answer: str) -> list[str]:
+    """检测回答中是否伪造了不存在的 PMID。
+
+    扫描类似 "PMID 99999999" 或 "PMID: 12345678" 的格式，
+    返回发现的疑似伪造 PMID 列表。
+    """
+    # 提取所有疑似 PMID 的数字串（8 位数字）
+    pmid_patterns = re.findall(r"PMID[\s:]*(\d{7,9})", answer, re.IGNORECASE)
+    suspicious: list[str] = []
+    for pmid in pmid_patterns:
+        # PMID 通常在 1-40,000,000 范围，超出为明显伪造
+        try:
+            val = int(pmid)
+            if val > 40_000_000:  # PubMed ID 目前约 3800 万
+                suspicious.append(f"PMID:{pmid} (超出合理范围)")
+        except ValueError:
+            suspicious.append(f"PMID:{pmid}")
+    return suspicious
+
+
 class AnswerService:
     def __init__(self, store: EvidenceStore):
         self.store = store
@@ -177,6 +265,18 @@ class AnswerService:
         citations = [self._citation(chunk, index + 1) for index, chunk in enumerate(combined)]
         # LLM 用含历史的问题，fallback 用原始问题
         answer = self.llm.answer(context_question, combined) or self._build_consumer_answer(question, combined)
+
+        # ── 引用真实性校验（幻觉防控第一层）──
+        citation_verify = verify_citations(answer, len(combined))
+        fabricated_pmids = verify_fabricated_pmids(answer)
+        if not citation_verify.valid or fabricated_pmids:
+            warn_parts: list[str] = []
+            if not citation_verify.valid:
+                warn_parts.append(f"[引用校验] {citation_verify.reason}")
+            if fabricated_pmids:
+                warn_parts.append(f"[PMID校验] 发现疑似伪造 PMID: {', '.join(fabricated_pmids[:3])}")
+            answer = answer + "\n\n---\n⚠ 内部引用校验未通过。上述回答可能包含不实信息，已自动标记。具体问题：\n" + "\n".join(f"  - {w}" for w in warn_parts)
+
         _remember(conversation_id, question, answer)
         source_parts: list[str] = []
         if extra_evidence:

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.schemas import AnswerResponse, PubMedSearchRequest, QuestionRequest
-from app.services.answer_service import REJECTION_PREAMBLE, SAFETY_NOTE, DOMAIN_REJECTION_MESSAGE, AnswerService, _build_context, check_safety, check_domain
+from app.services.answer_service import REJECTION_PREAMBLE, SAFETY_NOTE, DOMAIN_REJECTION_MESSAGE, AnswerService, _build_context, check_safety, check_domain, verify_citations, verify_fabricated_pmids
 from app.services.evidence_store import EvidenceChunk, EvidenceStore
 from app.services.llm_client import OpenAICompatibleLlm
 from app.services.pubmed_client import PubMedClient
@@ -370,6 +370,13 @@ async def answer_stream(payload: QuestionRequest):
             # 无引用，回退
             fallback = answers._build_consumer_answer(payload.question.strip(), combined)
             yield f"data: {json.dumps({'type': 'chunk', 'text': fallback})}\n\n"
+        # 引用真实性校验（幻觉防控第一层）
+        if full_text:
+            cit_ok = verify_citations(full_text, len(combined))
+            fake_pmids = verify_fabricated_pmids(full_text)
+            if not cit_ok.valid or fake_pmids:
+                warn = "；".join([cit_ok.reason] + [f"伪造PMID: {p}" for p in fake_pmids[:3]])
+                yield f"data: {json.dumps({'type': 'citation_warn', 'message': warn})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
