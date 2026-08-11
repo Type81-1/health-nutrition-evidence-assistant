@@ -16,6 +16,7 @@ from app.services.llm_client import OpenAICompatibleLlm
 from app.services.pubmed_client import PubMedClient
 from app.services.query_logger import QueryTrace
 from app.services.source_plugins import EuropePmcOpenAccessPlugin
+from app.services.wiki_store import WikiStore, seed_wiki_store
 
 
 def _pubmed_to_chunks(articles: list[dict[str, str]]) -> list[EvidenceChunk]:
@@ -110,6 +111,10 @@ answers = AnswerService(store)
 pubmed = PubMedClient()
 europe_pmc = EuropePmcOpenAccessPlugin()
 llm = OpenAICompatibleLlm()
+wiki = WikiStore()
+_seeded = seed_wiki_store(wiki)
+if _seeded > 0:
+    print(f"[Wiki] 已写入 {_seeded} 个预设主题页面")
 
 
 @app.get("/")
@@ -198,6 +203,26 @@ def wiki_page() -> FileResponse:
     return FileResponse(STATIC_DIR / "wiki.html")
 
 
+@app.get("/api/wiki/topics")
+def wiki_topics(q: str = "") -> list[dict]:
+    """LLM Wiki 主题页面列表 / 搜索。"""
+    if q:
+        topics = wiki.search(q, top_n=5)
+    else:
+        topics = list(wiki._topics.values())
+    return [t.to_dict() for t in topics]
+
+
+@app.get("/api/wiki/topics/{topic_id}")
+def wiki_topic_detail(topic_id: str) -> dict | None:
+    """获取单个 Wiki 主题的完整内容。"""
+    topic = wiki.get_topic(topic_id)
+    if topic is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="主题未找到")
+    return topic.to_dict()
+
+
 @app.post("/api/answer", response_model=AnswerResponse)
 async def answer_question(payload: QuestionRequest) -> AnswerResponse:
     trace = QueryTrace(payload.question.strip(), payload.conversation_id)
@@ -260,13 +285,20 @@ async def answer_question(payload: QuestionRequest) -> AnswerResponse:
         extra_evidence = _rerank_chunks(_pubmed_to_chunks(all_articles))
         if errors:
             pubmed_error = f"部分数据源暂不可用（{'；'.join(errors)}）"
+    # Wiki 优先查询：匹配高频主题页面
+    wiki_hits = wiki.search(payload.question.strip(), top_n=1)
+    wiki_text = wiki_hits[0].to_text() if wiki_hits else None
+
     resp = answers.answer(
         payload.question.strip(),
         extra_evidence=extra_evidence if extra_evidence else None,
         pubmed_error=pubmed_error,
         skip_local=bool(extra_evidence),  # 实时检索有结果就跳过本地
         conversation_id=payload.conversation_id,
+        wiki_text=wiki_text,
     )
+    if wiki_text and wiki_hits:
+        resp.retrieval_note = f"Wiki「{wiki_hits[0].title}」+ {resp.retrieval_note}"
     trace.finish(llm_used=(resp.answer_markdown != "" and "[E" in resp.answer_markdown), citation_count=len(resp.citations))
     return resp
 
@@ -353,11 +385,22 @@ async def answer_stream(payload: QuestionRequest):
     if pubmed_error:
         source_note += "；" + pubmed_error
 
+    # Wiki 查询
+    wiki_hits_stream = wiki.search(payload.question.strip(), top_n=1)
+
     async def _stream():
         # 先发检索元数据
-        yield f"data: {json.dumps({'type': 'meta', 'retrieval_note': source_note, 'citations': citations, 'safety_note': SAFETY_NOTE})}\n\n"
+        meta = {'type': 'meta', 'retrieval_note': source_note, 'citations': citations, 'safety_note': SAFETY_NOTE}
+        if wiki_hits_stream:
+            meta['wiki_topic'] = {'id': wiki_hits_stream[0].id, 'title': wiki_hits_stream[0].title}
+            meta['retrieval_note'] = f"Wiki 主题「{wiki_hits_stream[0].title}」+ {source_note}"
+        yield f"data: {json.dumps(meta)}\n\n"
         full_text = ""
-        async for chunk in llm.stream_answer(payload.question.strip(), combined):
+        # Wiki 上下文：附加到问题
+        stream_question = payload.question.strip()
+        if wiki_hits_stream:
+            stream_question = f"以下为系统预整理的高频主题知识（来自 Wiki 知识库），请在此基础上结合检索证据回答问题：\n\n{wiki_hits_stream[0].to_text()}\n\n---\n{stream_question}"
+        async for chunk in llm.stream_answer(stream_question, combined):
             if chunk is None:
                 # LLM 不可用，走 fallback
                 fallback = answers._build_consumer_answer(payload.question.strip(), combined)

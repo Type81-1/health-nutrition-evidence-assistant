@@ -232,6 +232,7 @@ class AnswerService:
         pubmed_error: str | None = None,
         skip_local: bool = False,
         conversation_id: str | None = None,
+        wiki_text: str | None = None,
     ) -> AnswerResponse:
         # 域外检测：非健康营养问题直接拒答
         domain_check = check_domain(question)
@@ -263,8 +264,12 @@ class AnswerService:
             )
 
         citations = [self._citation(chunk, index + 1) for index, chunk in enumerate(combined)]
+        # Wiki 主题上下文：如果找到匹配主题，附加到问题前
+        llm_question = context_question
+        if wiki_text:
+            llm_question = f"以下为系统预整理的高频主题知识（来自 Wiki 知识库），请在此基础上结合检索证据回答问题：\n\n{wiki_text}\n\n---\n{context_question}"
         # LLM 用含历史的问题，fallback 用原始问题
-        answer = self.llm.answer(context_question, combined) or self._build_consumer_answer(question, combined)
+        answer = self.llm.answer(llm_question, combined) or self._build_consumer_answer(question, combined)
 
         # ── 引用真实性校验（幻觉防控第一层）──
         citation_verify = verify_citations(answer, len(combined))
