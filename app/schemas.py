@@ -4,17 +4,18 @@ from pydantic import BaseModel, Field
 class QuestionRequest(BaseModel):
     question: str = Field(min_length=4, max_length=500)
     include_pubmed: bool = False
-    conversation_id: str | None = None
 
 
 class Citation(BaseModel):
     label: str
+    source_id: str
     title: str
     source_type: str
     year: str
     url: str
     excerpt: str
     evidence_level: str
+    evidence_role: str
 
 
 class AnswerResponse(BaseModel):
@@ -27,3 +28,13 @@ class AnswerResponse(BaseModel):
 class PubMedSearchRequest(BaseModel):
     query: str = Field(min_length=3, max_length=300)
     limit: int = Field(default=5, ge=1, le=10)
+
+
+class SimplifyEvidenceRequest(BaseModel):
+    source_id: str = Field(min_length=1, max_length=200)
+
+
+class SimplifyEvidenceResponse(BaseModel):
+    source_id: str
+    plain_language: str
+    method: str
