@@ -96,24 +96,18 @@ function regenerate(msgIndex) {
 }
 
 function renderAllMessages() {
-  // 每次渲染重新查询 DOM，避免 innerHTML 后引用失效
-  const _chatEmpty = document.querySelector('#chat-empty');
   const _intro = document.querySelector('#intro');
   if (messages.length === 0) {
-    if (_chatEmpty) _chatEmpty.style.display = '';
+    // 清空所有消息，只留空态
+    chatMessages.innerHTML = '<div id="chat-empty" class="chat-empty"><div class="empty-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/><path d="M8 11h6M11 8v6"/></svg></div><p><strong>输入你的健康营养问题</strong><br>系统将检索 PubMed + Europe PMC 公开文献，用通俗语言给出有据可查的回答。</p></div>';
     if (_intro) _intro.classList.remove('is-compact');
     if (newChatButton) newChatButton.classList.remove('is-visible');
     return;
   }
-  if (_chatEmpty) _chatEmpty.style.display = 'none';
   if (_intro) _intro.classList.add('is-compact');
   if (newChatButton) newChatButton.classList.add('is-visible');
 
   let html = '';
-  // 保留 chat-empty 元素（不在 innerHTML 中销毁）
-  if (!document.querySelector('#chat-empty')) {
-    html += '<div id="chat-empty" class="chat-empty" style="display:none"><div class="empty-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/><path d="M8 11h6M11 8v6"/></svg></div><p><strong>输入你的健康营养问题</strong><br>系统将检索 PubMed + Europe PMC 公开文献，用通俗语言给出有据可查的回答。</p></div>';
-  }
   messages.forEach((msg, i) => {
     if (msg._pending) {
       html += `
