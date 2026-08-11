@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>证据库浏览 — 食证</title>
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="stylesheet" href="/static/wiki.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='28' font-size='28'%3E%F0%9F%93%9A%3C/text%3E%3C/svg%3E">
+<meta property="og:title" content="证据库浏览 — 食证">
+<meta property="og:description" content="浏览 500+ 篇循证营养文献，按证据等级、年份、关键词筛选。">
+</head>
+<body>
+<a href="#wiki-main" class="skip-link">跳转到主内容</a>
+
+<!-- Nav -->
+<nav class="wiki-nav">
+  <div class="wiki-nav-inner">
+    <a href="/" class="nav-brand">
+      <span class="nav-dot"></span>食证
+    </a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">问答</a>
+      <a href="/wiki" class="nav-link active">证据库</a>
+    </div>
+  </div>
+</nav>
+
+<main id="wiki-main" class="wiki-main">
+  <!-- Hero stats -->
+  <section class="wiki-hero">
+    <h1 class="wiki-hero-title">循证知识库</h1>
+    <p class="wiki-hero-desc">来自 PubMed 与 Europe PMC 的公开研究文献，经混合检索引擎（Chroma 语义 + BM25 关键词 → RRF 融合）索引。</p>
+    <div class="wiki-stats" id="wiki-stats">
+      <div class="stat-card skeleton">加载中...</div>
+      <div class="stat-card skeleton">加载中...</div>
+      <div class="stat-card skeleton">加载中...</div>
+      <div class="stat-card skeleton">加载中...</div>
+    </div>
+  </section>
+
+  <!-- Filters -->
+  <section class="wiki-filters">
+    <div class="filter-row">
+      <div class="filter-search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="text" id="filter-search" placeholder="搜索标题或摘要..." class="filter-input">
+      </div>
+      <select id="filter-level" class="filter-select">
+        <option value="">全部证据等级</option>
+      </select>
+      <select id="filter-year" class="filter-select">
+        <option value="">全部年份</option>
+      </select>
+    </div>
+    <div class="filter-active" id="filter-active"></div>
+  </section>
+
+  <!-- Article grid -->
+  <section class="wiki-grid" id="wiki-grid">
+    <div class="wiki-loading">加载中...</div>
+  </section>
+
+  <!-- Pagination -->
+  <nav class="wiki-pagination" id="wiki-pagination"></nav>
+</main>
+
+<!-- Article detail modal -->
+<div class="wiki-modal-overlay" id="article-modal" aria-hidden="true">
+  <div class="wiki-modal" role="dialog" aria-modal="true">
+    <button class="wiki-modal-close" id="modal-close" aria-label="关闭">&times;</button>
+    <div class="wiki-modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script src="/static/wiki.js"></script>
+</body>
+</html>

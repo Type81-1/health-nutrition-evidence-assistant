@@ -122,6 +122,82 @@ def health() -> dict[str, str]:
     return {"status": "ok", "retrieval_backend": store.backend}
 
 
+@app.get("/api/knowledge")
+def knowledge_browse(
+    q: str = "",
+    level: str = "",
+    year_from: int = 0,
+    year_to: int = 3000,
+    page: int = 1,
+    size: int = 24,
+) -> dict:
+    """知识库浏览：返回统计信息 + 可过滤分页的文章列表。"""
+    all_chunks = store._chunks
+    # 过滤
+    filtered = []
+    for c in all_chunks:
+        if level and level not in c.evidence_level:
+            continue
+        try:
+            y = int(c.year) if c.year.isdigit() else 0
+        except (ValueError, TypeError):
+            y = 0
+        if year_from > 0 and y < year_from:
+            continue
+        if year_to < 3000 and y > year_to:
+            continue
+        if q:
+            searchable = f"{c.title} {c.content}".lower()
+            if q.lower() not in searchable:
+                continue
+        filtered.append(c)
+
+    total = len(filtered)
+    start = (page - 1) * size
+    page_items = filtered[start:start + size]
+
+    # 全局统计
+    years = set()
+    journals = set()
+    levels: dict[str, int] = {}
+    year_dist: dict[str, int] = {}
+    for c in all_chunks:
+        years.add(c.year if c.year.isdigit() else "0")
+        journals.add(c.source_type)
+        lvl = c.evidence_level
+        levels[lvl] = levels.get(lvl, 0) + 1
+        y = c.year if c.year.isdigit() else "未知"
+        year_dist[y] = year_dist.get(y, 0) + 1
+
+    return {
+        "total_articles": len(all_chunks),
+        "total_journals": len(journals),
+        "year_span": f"{min(int(y) for y in years if y.isdigit())}-{max(int(y) for y in years if y.isdigit())}" if years else "",
+        "evidence_levels": levels,
+        "year_distribution": dict(sorted(year_dist.items())),
+        "filtered_total": total,
+        "page": page,
+        "page_size": size,
+        "articles": [
+            {
+                "id": c.id,
+                "title": c.title,
+                "source_type": c.source_type,
+                "year": c.year,
+                "url": c.url,
+                "evidence_level": c.evidence_level,
+                "excerpt": c.content[:300],
+            }
+            for c in page_items
+        ],
+    }
+
+
+@app.get("/wiki")
+def wiki_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "wiki.html")
+
+
 @app.post("/api/answer", response_model=AnswerResponse)
 async def answer_question(payload: QuestionRequest) -> AnswerResponse:
     trace = QueryTrace(payload.question.strip(), payload.conversation_id)

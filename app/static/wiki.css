@@ -1,0 +1,375 @@
+/* ═══════════════════════════════════════════════════
+   Wiki / 证据库浏览 — 扩展 Soft Structuralism
+   ═══════════════════════════════════════════════════ */
+
+/* ── Nav ─────────────────────────────────────────── */
+.wiki-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(249,251,249,.85);
+  backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--line);
+}
+.wiki-nav-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+  letter-spacing: -.02em;
+}
+.nav-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+}
+.nav-links { display: flex; gap: 4px; }
+.nav-link {
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  transition: all .25s var(--ease-out-expo);
+}
+.nav-link:hover { color: var(--ink); background: var(--line-soft); }
+.nav-link.active { color: var(--accent); background: var(--mint-soft); }
+
+/* ── Hero ────────────────────────────────────────── */
+.wiki-main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+}
+.wiki-hero { margin-bottom: 40px; }
+.wiki-hero-title {
+  font-family: "Songti SC", "Noto Serif CJK SC", serif;
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -.03em;
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+.wiki-hero-desc {
+  font-size: 15px;
+  color: var(--muted);
+  max-width: 600px;
+  line-height: 1.6;
+  margin: 0 0 32px;
+}
+
+/* ── Stats ───────────────────────────────────────── */
+.wiki-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.stat-card {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-ambient);
+  border: 1px solid var(--line-soft);
+  transition: box-shadow .3s var(--ease-out-expo);
+}
+.stat-card:hover { box-shadow: var(--shadow-float); }
+.stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.1;
+  letter-spacing: -.02em;
+}
+.stat-label {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* ── Filters ─────────────────────────────────────── */
+.wiki-filters { margin-bottom: 32px; }
+.filter-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.filter-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 16px;
+  height: 44px;
+  transition: border-color .2s;
+}
+.filter-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.filter-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  color: var(--ink);
+  background: transparent;
+  font-family: inherit;
+}
+.filter-input::placeholder { color: var(--muted-soft); }
+.filter-select {
+  height: 44px;
+  padding: 0 32px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  cursor: pointer;
+  appearance: none;
+  font-family: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237a8c90' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  transition: border-color .2s;
+}
+.filter-select:focus { border-color: var(--accent); outline: none; }
+.filter-active { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 12px;
+  background: var(--mint-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.filter-tag button {
+  background: none; border: none; cursor: pointer;
+  color: var(--accent); font-size: 16px; line-height: 1; padding: 0;
+  opacity: 0.6;
+}
+.filter-tag button:hover { opacity: 1; }
+
+/* ── Grid ────────────────────────────────────────── */
+.wiki-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+.wiki-loading { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 60px 0; }
+
+/* ── Article card ────────────────────────────────── */
+.article-card {
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-ambient);
+  transition: box-shadow .3s var(--ease-out-expo), transform .2s var(--ease-out-expo);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.article-card:hover {
+  box-shadow: var(--shadow-float);
+  transform: translateY(-1px);
+}
+.article-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.article-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.article-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.article-card-excerpt {
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.article-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+}
+.article-card-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.article-card-link:hover { text-decoration: underline; }
+
+/* Evidence badges */
+.ev-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.badge-gold { background: #fef3c7; color: #92400e; }
+.badge-blue { background: #dbeafe; color: #1e40af; }
+.badge-green { background: #d1fae5; color: #065f46; }
+.badge-teal { background: #ccfbf1; color: #134e4a; }
+.badge-gray { background: #f3f4f6; color: #4b5563; }
+
+/* ── Pagination ──────────────────────────────────── */
+.wiki-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 40px;
+}
+.page-btn {
+  width: 36px; height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .2s;
+  font-family: inherit;
+}
+.page-btn:hover { border-color: var(--accent); color: var(--accent); }
+.page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.page-btn:disabled { opacity: .35; cursor: default; }
+
+/* ── Modal ───────────────────────────────────────── */
+.wiki-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(26,46,51,.4);
+  backdrop-filter: blur(6px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s var(--ease-out-expo);
+}
+.wiki-modal-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.wiki-modal {
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  max-width: 680px;
+  width: 90vw;
+  max-height: 85dvh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-modal);
+  position: relative;
+}
+.wiki-modal-close {
+  position: sticky;
+  top: 12px;
+  float: right;
+  z-index: 1;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 20px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .2s;
+  margin: 12px 12px 0 0;
+}
+.wiki-modal-close:hover { background: var(--paper-warm); color: var(--ink); }
+.wiki-modal-body { padding: 0 28px 28px; }
+.wiki-modal-body h2 { font-size: 20px; font-weight: 700; line-height: 1.4; margin: 0 0 12px; }
+.wiki-modal-body .modal-meta { font-size: 13px; color: var(--muted); margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.wiki-modal-body .modal-content { font-size: 14px; color: var(--ink-soft); line-height: 1.75; white-space: pre-wrap; }
+.wiki-modal-body .modal-link { display: inline-block; margin-top: 16px; color: var(--accent); font-weight: 600; text-decoration: none; font-size: 14px; }
+.wiki-modal-body .modal-link:hover { text-decoration: underline; }
+
+/* ── Year chart ──────────────────────────────────── */
+.year-chart { display: flex; gap: 2px; align-items: flex-end; height: 80px; margin-top: 12px; }
+.year-bar {
+  flex: 1;
+  min-width: 3px;
+  background: var(--mint);
+  border-radius: 2px 2px 0 0;
+  transition: background .2s;
+  cursor: pointer;
+  position: relative;
+}
+.year-bar:hover { background: var(--accent); }
+.year-bar-label {
+  position: absolute;
+  bottom: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Empty state ─────────────────────────────────── */
+.wiki-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 80px 24px;
+}
+.wiki-empty h3 { font-size: 18px; color: var(--ink); margin: 0 0 8px; }
+.wiki-empty p { font-size: 14px; color: var(--muted); margin: 0; }
+
+/* ── Responsive ──────────────────────────────────── */
+@media (max-width: 768px) {
+  .wiki-main { padding: 32px 16px 64px; }
+  .wiki-hero-title { font-size: 28px; }
+  .wiki-stats { grid-template-columns: repeat(2, 1fr); }
+  .wiki-grid { grid-template-columns: 1fr; }
+  .filter-row { flex-wrap: wrap; }
+  .filter-select { flex: 1; min-width: 120px; }
+}
