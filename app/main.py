@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.schemas import AnswerResponse, PubMedSearchRequest, QuestionRequest
-from app.services.answer_service import REJECTION_PREAMBLE, SAFETY_NOTE, DOMAIN_REJECTION_MESSAGE, AnswerService, _build_context, check_safety, check_domain, verify_citations, verify_fabricated_pmids
+from app.services.answer_service import REJECTION_PREAMBLE, SAFETY_NOTE, DOMAIN_REJECTION_MESSAGE, AnswerService, _build_context, build_no_evidence_response, check_safety, check_domain, verify_citations, verify_fabricated_pmids
 from app.services.evidence_store import EvidenceChunk, EvidenceStore
 from app.services.llm_client import OpenAICompatibleLlm
 from app.services.pubmed_client import PubMedClient
@@ -363,7 +363,7 @@ async def answer_stream(payload: QuestionRequest):
         combined = store.search(search_query, limit=4)
     if not combined:
         async def _empty():
-            yield f"data: {json.dumps({'type': 'error', 'message': '未检索到可用证据。'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': build_no_evidence_response(payload.question.strip(), len(store._chunks))})}\n\n"
         return StreamingResponse(_empty(), media_type="text/event-stream")
 
     citations = [

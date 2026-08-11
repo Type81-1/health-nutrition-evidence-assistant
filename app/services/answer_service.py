@@ -13,6 +13,33 @@ SAFETY_NOTE = (
     "有肾病/心衰等情况时，请先与医生或注册营养师讨论饮食调整。"
 )
 
+# ── 标准化拒答模板（PPT 要求三段式）───────────────────────────
+# 格式：已检索到的内容 / 缺失的证据类型 / 建议补充检索方向
+
+def build_no_evidence_response(search_query: str, kb_count: int) -> str:
+    """构建标准化的"证据不足"拒答话术。"""
+    return (
+        f"关于您的问题，我已完成以下检索：\n\n"
+        f"🔍 **已检索**：在本地知识库（{kb_count} 篇文献）中搜索了相关证据，"
+        f"但未找到直接匹配您问题的研究文献。\n\n"
+        f"❓ **缺失**：当前知识库可能缺少针对该具体问题的临床研究或系统综述。"
+        f"这可能是因为该问题超出了营养健康科普范围，或者相关高质量研究确实稀缺。\n\n"
+        f"💡 **建议**：您可以尝试：\n"
+        f"  1. 用更具体的关键词重新表述问题（如加入具体的食物、疾病或营养素名称）\n"
+        f"  2. 查阅 PubMed 获取最新研究：https://pubmed.ncbi.nlm.nih.gov/?term={search_query.replace(' ', '+')}\n"
+        f"  3. 咨询注册营养师或相关专科医生，获取基于临床经验的个体化建议"
+    )
+
+
+def build_evidence_conflict_response(conflict_description: str) -> str:
+    """构建证据冲突时的客观陈述模板。"""
+    return (
+        f"关于该问题，现有的研究证据存在分歧：\n\n"
+        f"⚖️ **证据冲突**：{conflict_description}\n\n"
+        f"在证据存在争议的情况下，我无法给出单方面的确定性结论。以下为两方观点：\n\n"
+        f"建议您结合自身情况，咨询专业医疗人员做出知情决策。"
+    )
+
 # ── 敏感内容拦截 ──────────────────────────────────────────────
 # 每个元组为 (正则模式, 拒答原因)
 _REJECTION_RULES: list[tuple[re.Pattern[str], str]] = [
@@ -257,7 +284,7 @@ class AnswerService:
         if not combined:
             note = pubmed_error or "未检索到可用证据。"
             return AnswerResponse(
-                answer_markdown="目前证据库和实时检索中都没有足以支撑回答的资料，因此不作具体结论。",
+                answer_markdown=build_no_evidence_response(search_query, len(self.store._chunks)),
                 citations=[],
                 safety_note=SAFETY_NOTE,
                 retrieval_note=note,
