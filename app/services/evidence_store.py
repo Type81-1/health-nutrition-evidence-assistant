@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -9,61 +11,13 @@ from typing import Iterable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SEED_PATH = PROJECT_ROOT / "data" / "seed_evidence.json"
-PUBMED_EVIDENCE_PATH = PROJECT_ROOT / "data" / "pubmed_evidence.json"
 CHROMA_PATH = PROJECT_ROOT / "data" / "chroma"
 
-
-GENERIC_TERMS = {
-    "什么",
-    "是否",
-    "真的",
-    "有用",
-    "帮助",
-    "怎么",
-    "如何",
-    "看待",
-    "应该",
-    "可以",
-    "证据",
-    "研究",
-    "饮食",
-    "健康",
-    "的人",
-    "一下",
-}
-
-# Only intervention aliases are expanded. Outcome terms such as "血压" remain
-# literal so that an unsupported subject (for example, a specific food) cannot
-# retrieve every blood-pressure paper in the store.
-CONCEPT_ALIASES = (
-    ("地中海饮食", "地中海式饮食", "地中海", "mediterranean"),
-    ("限钠", "低钠", "减钠", "减少钠", "钠摄入", "减盐", "少盐", "控盐", "食盐", "盐", "sodium", "salt"),
-    ("dash", "dash饮食"),
-    ("保健品", "补充剂", "营养补充剂", "supplement"),
-    ("维生素d", "维生素 d", "维d", "维 d", "vitamin d"),
-    ("睡眠", "失眠", "睡不好", "sleep"),
-    ("膳食纤维", "纤维", "车前子", "psyllium", "fiber", "fibre"),
-    ("便秘", "排便", "constipation"),
-    ("间歇性禁食", "轻断食", "限时进食", "隔日禁食", "intermittent fasting"),
-    ("减重", "减肥", "体重", "weight loss"),
-    ("益生菌", "probiotic"),
-    ("抗生素相关腹泻", "抗生素腹泻", "antibiotic-associated diarrhoea", "antibiotic-associated diarrhea"),
-    ("omega-3", "omega 3", "欧米伽3", "鱼油", "二十碳五烯酸乙酯", "icosapent ethyl"),
-    ("咖啡", "咖啡因", "coffee", "caffeine"),
-    ("2型糖尿病", "二型糖尿病", "糖尿病", "血糖", "糖化血红蛋白", "type 2 diabetes", "hba1c"),
-    ("低碳饮食", "低碳水", "生酮饮食", "生酮", "low carbohydrate", "ketogenic"),
-    ("胆固醇", "血脂", "低密度脂蛋白", "ldl"),
-    ("超加工食品", "高度加工食品", "ultra-processed"),
-    ("坚果", "nuts"),
-    ("蛋白质", "蛋白粉", "protein"),
-    ("增肌", "肌肉", "力量训练", "抗阻训练", "muscle", "resistance training"),
-)
-
-
-def _contains_alias(text: str, alias: str) -> bool:
-    if alias.isascii():
-        return re.search(rf"\b{re.escape(alias)}\b", text) is not None
-    return alias in text
+# ── BM25 参数 ──
+BM25_K1 = 1.5          # 词频饱和参数
+BM25_B = 0.75           # 长度归一化参数
+# ── RRF 融合参数 ──
+RRF_K = 60               # 标准 RRF 常数
 
 
 @dataclass
@@ -75,7 +29,6 @@ class EvidenceChunk:
     url: str
     evidence_level: str
     content: str
-    search_terms: str = ""
 
     def metadata(self) -> dict[str, str]:
         return {
@@ -86,45 +39,212 @@ class EvidenceChunk:
             "evidence_level": self.evidence_level,
         }
 
-    def searchable_text(self) -> str:
-        return f"{self.title} {self.search_terms} {self.content}"
 
+# ═══════════════════════════════════════════════════════════════
+# BM25 关键词检索引擎（中英混合分词，零额外依赖）
+# ═══════════════════════════════════════════════════════════════
+
+class BM25Index:
+    """轻量 BM25 检索引擎。
+
+    分词策略：
+    - 中文：字符 bigram（如 "地中海" → "地中" "中海"）+ unigram（单字回退）
+    - 英文：≥2 字母的单词
+    - 数字：独立数字串
+
+    索引在 index() 时一次性构建；增量添加通过 add_chunks() 触发重建。
+    """
+
+    def __init__(self, k1: float = BM25_K1, b: float = BM25_B):
+        self.k1 = k1
+        self.b = b
+        self._chunks: list[EvidenceChunk] = []
+        self._doc_lengths: list[int] = []
+        self._term_freqs: list[dict[str, int]] = []
+        self._idf: dict[str, float] = {}
+        self._avgdl: float = 0.0
+
+    # ── 分词 ─────────────────────────────────────────────
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        text_lower = text.lower()
+        tokens: list[str] = []
+
+        # 中文 → bigram + unigram
+        cjk_spans = re.findall(
+            r'[一-鿿㐀-䶿豈-﫿]+', text_lower
+        )
+        for span in cjk_spans:
+            for i in range(len(span) - 1):
+                tokens.append(span[i:i + 2])
+            for ch in span:
+                tokens.append(ch)
+
+        # 英文单词（≥2 字母）
+        tokens.extend(re.findall(r'[a-z]{2,}', text_lower))
+
+        # 数字串
+        tokens.extend(re.findall(r'\d+', text_lower))
+
+        return tokens
+
+    # ── 索引构建 ─────────────────────────────────────────
+
+    @property
+    def is_empty(self) -> bool:
+        return len(self._chunks) == 0
+
+    def index(self, chunks: list[EvidenceChunk]) -> None:
+        """从零构建 BM25 索引（IDF / 文档长度 / 词频）。"""
+        self._chunks = list(chunks)
+        self._doc_lengths.clear()
+        self._term_freqs.clear()
+        self._idf.clear()
+
+        if not chunks:
+            self._avgdl = 0.0
+            return
+
+        df: dict[str, int] = defaultdict(int)
+        N = len(chunks)
+
+        for chunk in chunks:
+            text = f"{chunk.title}\n{chunk.content}"
+            tokens = self._tokenize(text)
+            self._doc_lengths.append(len(tokens))
+            tf: dict[str, int] = defaultdict(int)
+            for t in tokens:
+                tf[t] += 1
+            self._term_freqs.append(dict(tf))
+            for t in set(tokens):
+                df[t] += 1
+
+        self._avgdl = sum(self._doc_lengths) / N
+
+        for term, freq in df.items():
+            self._idf[term] = math.log(
+                (N - freq + 0.5) / (freq + 0.5) + 1.0
+            )
+
+    def add_chunks(self, chunks: list[EvidenceChunk]) -> None:
+        """增量添加文献（触发全量重建，因 IDF/avgdl 需重算）。"""
+        if chunks:
+            self.index(self._chunks + chunks)
+
+    # ── 检索 ─────────────────────────────────────────────
+
+    def _score(self, query_tokens: list[str], doc_idx: int) -> float:
+        tf = self._term_freqs[doc_idx]
+        dl = self._doc_lengths[doc_idx]
+        total = 0.0
+        for t in query_tokens:
+            idf = self._idf.get(t, 0.0)
+            if idf == 0.0:
+                continue
+            f = tf.get(t, 0)
+            if f == 0:
+                continue
+            numerator = f * (self.k1 + 1)
+            denominator = f + self.k1 * (
+                1 - self.b + self.b * dl / max(self._avgdl, 1.0)
+            )
+            total += idf * numerator / denominator
+        return total
+
+    def search(
+        self, query: str, limit: int = 10
+    ) -> list[tuple[EvidenceChunk, float]]:
+        """返回 (chunk, BM25_score) 降序列表。无匹配时返回空列表。"""
+        if not self._chunks:
+            return []
+        query_tokens = self._tokenize(query)
+        if not query_tokens:
+            return [(self._chunks[0], 0.0)] if self._chunks else []
+        scored = [
+            (self._score(query_tokens, i), i)
+            for i in range(len(self._chunks))
+        ]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [
+            (self._chunks[i], s)
+            for s, i in scored[:limit]
+            if s > 0.0
+        ]
+
+
+# ═══════════════════════════════════════════════════════════════
+# Reciprocal Rank Fusion（RRF）
+# ═══════════════════════════════════════════════════════════════
+
+def rrf_fusion(
+    results_a: list[EvidenceChunk],
+    results_b: list[EvidenceChunk],
+    k: int = RRF_K,
+    limit: int = 10,
+) -> list[EvidenceChunk]:
+    """将两个有序结果列表按 RRF 分数融合，返回 top-N。
+
+    RRF 公式: score(d) = Σ 1 / (k + rank_i(d))
+    其中 k=60（标准常数），rank 从 1 开始。
+    """
+    scores: dict[str, tuple[float, EvidenceChunk]] = {}
+
+    for rank, chunk in enumerate(results_a, start=1):
+        cid = chunk.id
+        inc = 1.0 / (k + rank)
+        if cid in scores:
+            scores[cid] = (scores[cid][0] + inc, chunk)
+        else:
+            scores[cid] = (inc, chunk)
+
+    for rank, chunk in enumerate(results_b, start=1):
+        cid = chunk.id
+        inc = 1.0 / (k + rank)
+        if cid in scores:
+            scores[cid] = (scores[cid][0] + inc, chunk)
+        else:
+            scores[cid] = (inc, chunk)
+
+    ranked = sorted(scores.values(), key=lambda x: x[0], reverse=True)
+    return [chunk for _, chunk in ranked[:limit]]
+
+
+# ═══════════════════════════════════════════════════════════════
+# EvidenceStore（混合检索入口）
+# ═══════════════════════════════════════════════════════════════
 
 class EvidenceStore:
-    """Evidence retrieval with a lexical relevance gate and optional reranking."""
+    """Chroma 语义 + BM25 关键词 → RRF 混合检索。
+
+    - Chroma 可用时：并行跑语义 + BM25，RRF 融合取 top-N
+    - Chroma 不可用时：纯 BM25 检索
+    """
 
     def __init__(
         self,
         seed_path: Path = SEED_PATH,
         persist_path: Path = CHROMA_PATH,
         enable_chroma: bool = True,
-        additional_paths: tuple[Path, ...] | None = None,
     ):
         self.seed_path = seed_path
         self.persist_path = persist_path
-        if additional_paths is None:
-            additional_paths = (PUBMED_EVIDENCE_PATH,) if seed_path == SEED_PATH else ()
-        self.evidence_paths = (seed_path, *additional_paths)
-        self._chunks = self._load_evidence()
+        self._chunks = self._load_seed()
+
+        # BM25 索引（始终可用）
+        self._bm25 = BM25Index()
+        self._bm25.index(self._chunks)
+
         self._collection = None
-        self.backend = "相关性词项检索"
+        self.backend = "BM25 keyword retrieval"
         if enable_chroma:
             self._initialise_chroma()
 
-    def _load_evidence(self) -> list[EvidenceChunk]:
-        chunks: list[EvidenceChunk] = []
-        seen_ids: set[str] = set()
-        for path in self.evidence_paths:
-            if not path.exists():
-                continue
-            records = json.loads(path.read_text(encoding="utf-8"))
-            for record in records:
-                chunk = EvidenceChunk(**record)
-                if chunk.id in seen_ids:
-                    raise ValueError(f"重复的证据 ID：{chunk.id}")
-                seen_ids.add(chunk.id)
-                chunks.append(chunk)
-        return chunks
+    # ── 数据加载 ─────────────────────────────────────────
+
+    def _load_seed(self) -> list[EvidenceChunk]:
+        records = json.loads(self.seed_path.read_text(encoding="utf-8"))
+        return [EvidenceChunk(**record) for record in records]
 
     def _initialise_chroma(self) -> None:
         try:
@@ -136,122 +256,69 @@ class EvidenceStore:
                 name="nutrition_evidence",
                 metadata={"description": "健康营养公开证据库"},
             )
-            current_ids = {chunk.id for chunk in self._chunks}
-            stored_ids = set(self._collection.get().get("ids", []))
-            stale_ids = sorted(stored_ids - current_ids)
-            if stale_ids:
-                self._collection.delete(ids=stale_ids)
-            self._collection.upsert(
-                ids=[chunk.id for chunk in self._chunks],
-                documents=[chunk.searchable_text() for chunk in self._chunks],
-                metadatas=[chunk.metadata() for chunk in self._chunks],
-            )
-            self.backend = "人工标签相关性检索 + Chroma 证据索引"
+            existing = self._collection.count()
+            if existing == 0:
+                self._collection.add(
+                    ids=[chunk.id for chunk in self._chunks],
+                    documents=[chunk.content for chunk in self._chunks],
+                    metadatas=[chunk.metadata() for chunk in self._chunks],
+                )
+            self.backend = "hybrid (Chroma + BM25 → RRF)"
         except Exception:
-            # Chroma 的嵌入模型首次下载失败时，课堂演示仍可使用本地样例与关键词检索。
             self._collection = None
+
+    # ── 增删 ─────────────────────────────────────────────
 
     def add_chunks(self, chunks: Iterable[EvidenceChunk]) -> int:
         new_chunks = list(chunks)
         if not new_chunks:
             return 0
         self._chunks.extend(new_chunks)
+
+        # 同步 BM25
+        self._bm25.add_chunks(new_chunks)
+
+        # 同步 Chroma
         if self._collection is not None:
             self._collection.upsert(
                 ids=[chunk.id for chunk in new_chunks],
-                documents=[chunk.searchable_text() for chunk in new_chunks],
+                documents=[chunk.content for chunk in new_chunks],
                 metadatas=[chunk.metadata() for chunk in new_chunks],
             )
         return len(new_chunks)
 
-    def get_by_id(self, source_id: str) -> EvidenceChunk | None:
-        return next((chunk for chunk in self._chunks if chunk.id == source_id), None)
+    # ── 混合检索 ─────────────────────────────────────────
 
     def search(self, question: str, limit: int = 4) -> list[EvidenceChunk]:
-        # Semantic stores always return nearest neighbours, including unrelated
-        # ones. Lexical gating prevents those neighbours from becoming evidence.
-        # Use the persisted vector collection as an index, but keep the final
-        # ordering deterministic and auditable. Semantic nearest-neighbour
-        # ordering can otherwise promote a broad but wrong nutrition topic.
-        return self._keyword_search(question, limit)
+        """执行混合检索：Chroma 语义 + BM25 关键词 → RRF 融合。
 
-    def _keyword_search(self, question: str, limit: int) -> list[EvidenceChunk]:
-        terms = self._query_terms(question)
-        if not terms:
-            return []
+        Chroma 不可用时退回纯 BM25。
+        """
+        # BM25 始终可用
+        bm25_results = self._bm25.search(question, limit=limit * 3)
+        bm25_chunks = [c for c, _ in bm25_results]
 
-        normalized = question.lower()
-        requested_concepts = [
-            aliases
-            for aliases in CONCEPT_ALIASES
-            if any(_contains_alias(normalized, alias) for alias in aliases)
-        ]
-        required_subject = None if requested_concepts else self._required_subject(normalized)
+        # Chroma 语义检索
+        if self._collection is not None:
+            try:
+                chroma_limit = limit * 2
+                result = self._collection.query(
+                    query_texts=[question], n_results=chroma_limit
+                )
+                chroma_chunks = [
+                    EvidenceChunk(
+                        id=result["ids"][0][idx],
+                        content=result["documents"][0][idx],
+                        **result["metadatas"][0][idx],
+                    )
+                    for idx in range(len(result["ids"][0]))
+                ]
+                # RRF 融合
+                return rrf_fusion(
+                    chroma_chunks, bm25_chunks, k=RRF_K, limit=limit
+                )
+            except Exception:
+                pass
 
-        def covers_subject(chunk: EvidenceChunk) -> bool:
-            # Concepts must occur in a title or a curator-reviewed search tag.
-            # A passing mention in the summary is useful for ranking, but is
-            # not enough to make a paper evidence for another topic.
-            searchable = f"{chunk.title} {chunk.search_terms}".lower()
-            if requested_concepts and not all(
-                any(_contains_alias(searchable, alias) for alias in aliases)
-                for aliases in requested_concepts
-            ):
-                return False
-            if required_subject and required_subject not in searchable:
-                return False
-            return True
-
-        def score(chunk: EvidenceChunk) -> int:
-            title = chunk.title.lower()
-            content = f"{chunk.search_terms} {chunk.content}".lower()
-            return sum(
-                weight * (3 if term in title else 1 if term in content else 0)
-                for term, weight in terms.items()
-            )
-
-        ranked = sorted(
-            ((score(chunk), chunk) for chunk in self._chunks if covers_subject(chunk)),
-            key=lambda item: (item[0], item[1].year),
-            reverse=True,
-        )
-        return [chunk for relevance, chunk in ranked if relevance >= 3][:limit]
-
-    @staticmethod
-    def _required_subject(question: str) -> str | None:
-        match = re.match(r"^(.{1,16}?)(?:能不能|能否|能|会不会|会|是否|对)", question)
-        if not match:
-            return None
-        subject = match.group(1)
-        for prefix in ("请问", "想知道", "多吃", "少吃", "吃", "喝", "服用", "补充"):
-            if subject.startswith(prefix):
-                subject = subject[len(prefix) :]
-        subject = subject.strip()
-        if any(outcome in subject for outcome in ("血压", "高血压", "血脂", "胆固醇", "心血管")):
-            return None
-        return subject if 1 < len(subject) <= 8 and subject not in GENERIC_TERMS else None
-
-    @staticmethod
-    def _query_terms(question: str) -> dict[str, int]:
-        normalized = question.lower()
-        terms: dict[str, int] = {}
-
-        for word in re.findall(r"[a-zA-Z]{3,}", normalized):
-            if word not in GENERIC_TERMS:
-                terms[word] = max(terms.get(word, 0), 2)
-
-        for sequence in re.findall(r"[\u4e00-\u9fff]+", normalized):
-            for size in (4, 3, 2):
-                for start in range(len(sequence) - size + 1):
-                    term = sequence[start : start + size]
-                    if term not in GENERIC_TERMS and not any(
-                        term in generic for generic in GENERIC_TERMS
-                    ):
-                        terms[term] = max(terms.get(term, 0), 1)
-
-        for aliases in CONCEPT_ALIASES:
-            if any(_contains_alias(normalized, alias) for alias in aliases):
-                for alias in aliases:
-                    terms[alias] = max(terms.get(alias, 0), 3)
-
-        return terms
+        # 纯 BM25 回退
+        return bm25_chunks[:limit] if bm25_chunks else []

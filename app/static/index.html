@@ -3,103 +3,51 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>食证 - 健康营养证据助手</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Source+Serif+4:wght@600;700&display=swap" rel="stylesheet">
+  <title>食证 · 健康营养证据助手</title>
+  <meta name="description" content="面向日常饮食、血压与血脂问题的可追溯科普。先检索公开证据，再用普通人能读懂的语言回答。">
+  <meta property="og:title" content="食证 · 健康营养证据助手">
+  <meta property="og:description" content="让每一条健康建议都能找到依据。先检索公开证据，再用普通人能读懂的语言回答。">
+  <meta property="og:type" content="website">
+  <meta name="theme-color" content="#0c765d">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230c765d'/><text x='16' y='24' text-anchor='middle' font-size='22' fill='white' font-family='serif'>食</text></svg>">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  <a href="#chat-messages" class="skip-link">跳到主内容</a>
   <header class="topbar">
     <a class="brand" href="/" aria-label="食证首页"><span class="brand-mark">食</span><span>食证</span></a>
     <div class="topbar-actions">
-      <div class="topbar-meta"><span class="status-dot"></span>证据优先</div>
-      <button id="history-toggle" class="history-toggle" type="button" aria-controls="history-drawer" aria-expanded="false">
-        对话历史 <span id="history-count" class="history-count">0</span>
-      </button>
+      <button id="new-chat-button" class="new-chat-button" type="button" title="开始新对话"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="margin-right:4px;vertical-align:-2px;"><path d="M12 5v14M5 12h14"/></svg>新对话</button>
+      <span class="topbar-meta"><span class="status-dot"></span>证据优先</span>
     </div>
   </header>
   <main>
-    <section class="intro">
-      <p class="eyebrow">NUTRITION EVIDENCE, EXPLAINED</p>
+    <section id="intro" class="intro">
       <h1>让每一条健康建议<br>都能找到依据。</h1>
-      <p class="intro-copy">当前本地证据重点覆盖限钠、DASH、地中海饮食与心血管预防。只回答有直接来源支持的内容，证据不足时不作结论。</p>
+      <p class="intro-copy">面向日常饮食、血压与血脂问题的可追溯科普。先检索公开证据，再用普通人能读懂的语言回答。支持连续追问。</p>
     </section>
-    <section class="ask-panel" aria-label="提问区">
-      <label for="question">你想了解什么？</label>
-      <div class="ask-row">
-        <textarea id="question" rows="2" placeholder="例如：限钠饮食对高血压是否真的有帮助？"></textarea>
-        <button id="ask-button" type="button">获取证据</button>
-      </div>
-      <div class="suggestions" aria-label="示例问题">
-        <button type="button" data-question="地中海饮食对心血管风险有什么证据？">地中海饮食与心血管风险</button>
-        <button type="button" data-question="限钠饮食对高血压是否真的有帮助？">限钠饮食与高血压</button>
-        <button type="button" data-question="我经常点外卖，怎样更实际地少吃盐？">外卖怎样少吃盐</button>
-        <button type="button" data-question="DASH 饮食和少盐可以一起做吗？">DASH 与少盐</button>
-        <button type="button" data-question="吃了降压药以后可以自己停药吗？">服药后的饮食调整</button>
-        <button type="button" data-question="香蕉真的能降低血压吗？">单一食物是否有效</button>
-      </div>
-    </section>
-    <section id="empty-state" class="empty-state">
-      <div class="empty-icon">+</div>
-      <p>输入问题后，这里会呈现结论、证据边界与可核查来源。</p>
-    </section>
-    <section id="answer-section" class="answer-section is-hidden" aria-live="polite">
-      <div class="answer-main">
-        <div class="answer-heading">
-          <p class="eyebrow">EVIDENCE SUMMARY</p>
-          <span id="retrieval-note" class="retrieval-note"></span>
+    <section class="chat-container" aria-label="对话区">
+      <div id="chat-messages" class="chat-messages">
+        <div id="chat-empty" class="chat-empty">
+          <div class="empty-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/><path d="M8 11h6M11 8v6"/></svg></div>
+          <p><strong>输入你的健康营养问题</strong><br>系统将检索 PubMed + Europe PMC 公开文献，用通俗语言给出有据可查的回答。你也可以连续追问，系统会结合上下文理解你的意图。</p>
         </div>
-        <article id="answer-content" class="answer-content"></article>
-        <aside id="safety-note" class="safety-note"></aside>
       </div>
-      <aside class="source-panel">
-        <div class="source-heading"><span>来源</span><span id="source-count">0</span></div>
-        <div id="citation-list" class="citation-list"></div>
-        <button id="pubmed-toggle" class="secondary-button" type="button">实时检索 PubMed</button>
-        <div id="pubmed-results" class="pubmed-results"></div>
-      </aside>
+      <div class="chat-input-panel">
+        <label for="question" class="sr-only">你想了解什么？</label>
+        <div class="ask-row">
+          <textarea id="question" rows="2" maxlength="500" placeholder="例如：地中海饮食对心血管风险有什么证据？"></textarea>
+          <button id="ask-button" type="button">获取证据</button>
+        </div>
+        <div class="suggestions" aria-label="示例问题">
+          <button type="button" data-question="地中海饮食对心血管风险有什么证据？">地中海饮食与心血管风险</button>
+          <button type="button" data-question="限钠饮食对高血压是否真的有帮助？">限钠饮食与高血压</button>
+          <button type="button" data-question="血脂偏高的人应该只靠保健品吗？">血脂偏高如何看待保健品</button>
+        </div>
+      </div>
     </section>
   </main>
-  <button id="history-backdrop" class="history-backdrop is-hidden" type="button" aria-label="关闭对话历史"></button>
-  <aside id="history-drawer" class="history-drawer is-hidden" aria-hidden="true" aria-label="对话历史">
-    <div class="history-heading">
-      <div>
-        <p class="eyebrow">RECENT QUESTIONS</p>
-        <h2>对话历史</h2>
-      </div>
-      <button id="history-close" class="icon-button" type="button" aria-label="关闭对话历史" title="关闭">×</button>
-    </div>
-    <div id="history-list" class="history-list"></div>
-    <p id="history-empty" class="history-empty">还没有保存的提问。</p>
-    <button id="history-clear" class="history-clear" type="button">清空历史</button>
-  </aside>
-  <footer>
-    <span>AI 辅助整理</span>
-    <span>仅使用公开证据来源</span>
-    <span>非诊疗、非个体化建议</span>
-    <span>紧急情况请及时就医</span>
-    <button id="ethics-toggle" type="button">伦理与免责声明</button>
-  </footer>
-  <dialog id="ethics-dialog" class="ethics-dialog">
-    <div class="ethics-dialog-heading">
-      <h2>伦理与免责声明</h2>
-      <button id="ethics-close" class="icon-button" type="button" aria-label="关闭伦理与免责声明" title="关闭">×</button>
-    </div>
-    <div class="ethics-content">
-      <p>本系统为暑期实践项目开发的“临床证据助手”原型，仅用于教学演示、医学文献检索、科研辅助与技术验证。系统面向临床医生、医学生和科研人员，旨在帮助用户快速发现、整理和理解公开的医学文献、临床试验、指南及其他证据，不属于医疗器械或正式的临床决策支持系统。</p>
-      <ol>
-        <li><h3>不构成医疗建议</h3><p>系统生成的内容仅供参考，不构成诊断、处方、治疗方案或其他医疗建议，不能替代执业医师的专业判断，也不得作为独立开展临床决策、调整药物剂量或停止治疗的依据。</p></li>
-        <li><h3>证据与回答可能存在局限</h3><p>系统使用人工智能和检索增强生成技术处理公开资料，可能出现检索遗漏、内容过时、语境理解偏差、证据等级判断不准确、引用对应错误或生成不实信息等情况。引用来源的存在并不代表系统对文献质量、研究结论或临床适用性作出保证。</p></li>
-        <li><h3>重要信息须人工核验</h3><p>用户应核对原始文献、指南版本、发布日期、适用人群、研究设计及证据等级。涉及临床实践的内容，还应结合患者具体情况、最新权威指南、药品说明书以及所在地区的法律法规，由具备资质的专业人员独立判断。</p></li>
-        <li><h3>不得输入真实患者敏感信息</h3><p>本系统不用于处理真实患者数据。请勿输入姓名、身份证号、联系方式、病历号、检查报告原件、面部影像或其他能够识别个人身份的健康和隐私信息。教学测试应使用虚构、匿名化或已合法公开的数据。</p></li>
-        <li><h3>不得用于紧急医疗情形</h3><p>本系统不提供急诊服务。出现胸痛、呼吸困难、意识障碍、疑似卒中、严重过敏等紧急情况时，应立即联系当地急救机构或前往正规医疗机构，不应等待或依赖本系统的回答。</p></li>
-        <li><h3>公平性与适用范围</h3><p>医学证据可能受到研究人群、地域、年龄、性别、种族、基础疾病和数据代表性等因素限制。系统回答不一定适用于所有个体或医疗环境，使用时应关注潜在偏差，避免机械套用结论。</p></li>
-        <li><h3>责任边界</h3><p>使用者应对信息的核验、解释和实际使用承担责任。因未经专业核实而直接采用系统输出所产生的风险或损失，不应归责于本教学项目及其开发成员。</p></li>
-      </ol>
-      <p class="ethics-consent">继续使用本系统，即表示用户已经理解上述限制，并同意仅在教学、科研辅助和证据检索范围内审慎使用。</p>
-    </div>
-  </dialog>
+  <footer>用于健康教育和文献线索整理，不用于诊断或治疗决策。</footer>
   <script src="/static/app.js"></script>
 </body>
 </html>
