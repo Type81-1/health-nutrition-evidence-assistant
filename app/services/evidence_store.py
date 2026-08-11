@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -10,6 +12,12 @@ from typing import Iterable
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SEED_PATH = PROJECT_ROOT / "data" / "seed_evidence.json"
 CHROMA_PATH = PROJECT_ROOT / "data" / "chroma"
+
+# ── BM25 参数 ──
+BM25_K1 = 1.5          # 词频饱和参数
+BM25_B = 0.75           # 长度归一化参数
+# ── RRF 融合参数 ──
+RRF_K = 60               # 标准 RRF 常数
 
 
 @dataclass
@@ -32,8 +40,186 @@ class EvidenceChunk:
         }
 
 
+# ═══════════════════════════════════════════════════════════════
+# BM25 关键词检索引擎（中英混合分词，零额外依赖）
+# ═══════════════════════════════════════════════════════════════
+
+class BM25Index:
+    """轻量 BM25 检索引擎。
+
+    分词策略：
+    - 中文：字符 bigram（如 "地中海" → "地中" "中海"）+ unigram（单字回退）
+    - 英文：≥2 字母的单词
+    - 数字：独立数字串
+
+    索引在 index() 时一次性构建；增量添加通过 add_chunks() 触发重建。
+    """
+
+    def __init__(self, k1: float = BM25_K1, b: float = BM25_B):
+        self.k1 = k1
+        self.b = b
+        self._chunks: list[EvidenceChunk] = []
+        self._doc_lengths: list[int] = []
+        self._term_freqs: list[dict[str, int]] = []
+        self._idf: dict[str, float] = {}
+        self._avgdl: float = 0.0
+
+    # ── 分词 ─────────────────────────────────────────────
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        text_lower = text.lower()
+        tokens: list[str] = []
+
+        # 中文 → bigram + unigram
+        cjk_spans = re.findall(
+            r'[一-鿿㐀-䶿豈-﫿]+', text_lower
+        )
+        for span in cjk_spans:
+            for i in range(len(span) - 1):
+                tokens.append(span[i:i + 2])
+            for ch in span:
+                tokens.append(ch)
+
+        # 英文单词（≥2 字母）
+        tokens.extend(re.findall(r'[a-z]{2,}', text_lower))
+
+        # 数字串
+        tokens.extend(re.findall(r'\d+', text_lower))
+
+        return tokens
+
+    # ── 索引构建 ─────────────────────────────────────────
+
+    @property
+    def is_empty(self) -> bool:
+        return len(self._chunks) == 0
+
+    def index(self, chunks: list[EvidenceChunk]) -> None:
+        """从零构建 BM25 索引（IDF / 文档长度 / 词频）。"""
+        self._chunks = list(chunks)
+        self._doc_lengths.clear()
+        self._term_freqs.clear()
+        self._idf.clear()
+
+        if not chunks:
+            self._avgdl = 0.0
+            return
+
+        df: dict[str, int] = defaultdict(int)
+        N = len(chunks)
+
+        for chunk in chunks:
+            text = f"{chunk.title}\n{chunk.content}"
+            tokens = self._tokenize(text)
+            self._doc_lengths.append(len(tokens))
+            tf: dict[str, int] = defaultdict(int)
+            for t in tokens:
+                tf[t] += 1
+            self._term_freqs.append(dict(tf))
+            for t in set(tokens):
+                df[t] += 1
+
+        self._avgdl = sum(self._doc_lengths) / N
+
+        for term, freq in df.items():
+            self._idf[term] = math.log(
+                (N - freq + 0.5) / (freq + 0.5) + 1.0
+            )
+
+    def add_chunks(self, chunks: list[EvidenceChunk]) -> None:
+        """增量添加文献（触发全量重建，因 IDF/avgdl 需重算）。"""
+        if chunks:
+            self.index(self._chunks + chunks)
+
+    # ── 检索 ─────────────────────────────────────────────
+
+    def _score(self, query_tokens: list[str], doc_idx: int) -> float:
+        tf = self._term_freqs[doc_idx]
+        dl = self._doc_lengths[doc_idx]
+        total = 0.0
+        for t in query_tokens:
+            idf = self._idf.get(t, 0.0)
+            if idf == 0.0:
+                continue
+            f = tf.get(t, 0)
+            if f == 0:
+                continue
+            numerator = f * (self.k1 + 1)
+            denominator = f + self.k1 * (
+                1 - self.b + self.b * dl / max(self._avgdl, 1.0)
+            )
+            total += idf * numerator / denominator
+        return total
+
+    def search(
+        self, query: str, limit: int = 10
+    ) -> list[tuple[EvidenceChunk, float]]:
+        """返回 (chunk, BM25_score) 降序列表。无匹配时返回空列表。"""
+        if not self._chunks:
+            return []
+        query_tokens = self._tokenize(query)
+        if not query_tokens:
+            return [(self._chunks[0], 0.0)] if self._chunks else []
+        scored = [
+            (self._score(query_tokens, i), i)
+            for i in range(len(self._chunks))
+        ]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [
+            (self._chunks[i], s)
+            for s, i in scored[:limit]
+            if s > 0.0
+        ]
+
+
+# ═══════════════════════════════════════════════════════════════
+# Reciprocal Rank Fusion（RRF）
+# ═══════════════════════════════════════════════════════════════
+
+def rrf_fusion(
+    results_a: list[EvidenceChunk],
+    results_b: list[EvidenceChunk],
+    k: int = RRF_K,
+    limit: int = 10,
+) -> list[EvidenceChunk]:
+    """将两个有序结果列表按 RRF 分数融合，返回 top-N。
+
+    RRF 公式: score(d) = Σ 1 / (k + rank_i(d))
+    其中 k=60（标准常数），rank 从 1 开始。
+    """
+    scores: dict[str, tuple[float, EvidenceChunk]] = {}
+
+    for rank, chunk in enumerate(results_a, start=1):
+        cid = chunk.id
+        inc = 1.0 / (k + rank)
+        if cid in scores:
+            scores[cid] = (scores[cid][0] + inc, chunk)
+        else:
+            scores[cid] = (inc, chunk)
+
+    for rank, chunk in enumerate(results_b, start=1):
+        cid = chunk.id
+        inc = 1.0 / (k + rank)
+        if cid in scores:
+            scores[cid] = (scores[cid][0] + inc, chunk)
+        else:
+            scores[cid] = (inc, chunk)
+
+    ranked = sorted(scores.values(), key=lambda x: x[0], reverse=True)
+    return [chunk for _, chunk in ranked[:limit]]
+
+
+# ═══════════════════════════════════════════════════════════════
+# EvidenceStore（混合检索入口）
+# ═══════════════════════════════════════════════════════════════
+
 class EvidenceStore:
-    """Chroma 优先的证据库；无模型下载条件时可无缝退回词项检索。"""
+    """Chroma 语义 + BM25 关键词 → RRF 混合检索。
+
+    - Chroma 可用时：并行跑语义 + BM25，RRF 融合取 top-N
+    - Chroma 不可用时：纯 BM25 检索
+    """
 
     def __init__(
         self,
@@ -44,10 +230,17 @@ class EvidenceStore:
         self.seed_path = seed_path
         self.persist_path = persist_path
         self._chunks = self._load_seed()
+
+        # BM25 索引（始终可用）
+        self._bm25 = BM25Index()
+        self._bm25.index(self._chunks)
+
         self._collection = None
-        self.backend = "local keyword retrieval"
+        self.backend = "BM25 keyword retrieval"
         if enable_chroma:
             self._initialise_chroma()
+
+    # ── 数据加载 ─────────────────────────────────────────
 
     def _load_seed(self) -> list[EvidenceChunk]:
         records = json.loads(self.seed_path.read_text(encoding="utf-8"))
@@ -70,16 +263,22 @@ class EvidenceStore:
                     documents=[chunk.content for chunk in self._chunks],
                     metadatas=[chunk.metadata() for chunk in self._chunks],
                 )
-            self.backend = "Chroma semantic retrieval"
+            self.backend = "hybrid (Chroma + BM25 → RRF)"
         except Exception:
-            # Chroma 的嵌入模型首次下载失败时，课堂演示仍可使用本地样例与关键词检索。
             self._collection = None
+
+    # ── 增删 ─────────────────────────────────────────────
 
     def add_chunks(self, chunks: Iterable[EvidenceChunk]) -> int:
         new_chunks = list(chunks)
         if not new_chunks:
             return 0
         self._chunks.extend(new_chunks)
+
+        # 同步 BM25
+        self._bm25.add_chunks(new_chunks)
+
+        # 同步 Chroma
         if self._collection is not None:
             self._collection.upsert(
                 ids=[chunk.id for chunk in new_chunks],
@@ -88,28 +287,38 @@ class EvidenceStore:
             )
         return len(new_chunks)
 
+    # ── 混合检索 ─────────────────────────────────────────
+
     def search(self, question: str, limit: int = 4) -> list[EvidenceChunk]:
+        """执行混合检索：Chroma 语义 + BM25 关键词 → RRF 融合。
+
+        Chroma 不可用时退回纯 BM25。
+        """
+        # BM25 始终可用
+        bm25_results = self._bm25.search(question, limit=limit * 3)
+        bm25_chunks = [c for c, _ in bm25_results]
+
+        # Chroma 语义检索
         if self._collection is not None:
             try:
-                result = self._collection.query(query_texts=[question], n_results=limit)
-                return [
+                chroma_limit = limit * 2
+                result = self._collection.query(
+                    query_texts=[question], n_results=chroma_limit
+                )
+                chroma_chunks = [
                     EvidenceChunk(
-                        id=result["ids"][0][index],
-                        content=result["documents"][0][index],
-                        **result["metadatas"][0][index],
+                        id=result["ids"][0][idx],
+                        content=result["documents"][0][idx],
+                        **result["metadatas"][0][idx],
                     )
-                    for index in range(len(result["ids"][0]))
+                    for idx in range(len(result["ids"][0]))
                 ]
+                # RRF 融合
+                return rrf_fusion(
+                    chroma_chunks, bm25_chunks, k=RRF_K, limit=limit
+                )
             except Exception:
                 pass
-        return self._keyword_search(question, limit)
 
-    def _keyword_search(self, question: str, limit: int) -> list[EvidenceChunk]:
-        terms = set(re.findall(r"[a-zA-Z]{3,}|[\u4e00-\u9fff]{2,}", question.lower()))
-
-        def score(chunk: EvidenceChunk) -> int:
-            searchable = f"{chunk.title} {chunk.content}".lower()
-            return sum(term in searchable for term in terms)
-
-        ranked = sorted(self._chunks, key=score, reverse=True)
-        return [chunk for chunk in ranked if score(chunk) > 0][:limit] or ranked[:limit]
+        # 纯 BM25 回退
+        return bm25_chunks[:limit] if bm25_chunks else []

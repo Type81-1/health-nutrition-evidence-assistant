@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import xml.etree.ElementTree as ET
+from datetime import datetime
 
 import httpx
 
@@ -10,8 +11,20 @@ EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 
 class PubMedClient:
-    async def search(self, query: str, limit: int = 5) -> list[dict[str, str]]:
-        params = {"db": "pubmed", "term": query, "retmax": str(limit), "retmode": "json"}
+    async def search(self, query: str, limit: int = 5, max_age_years: int = 10) -> list[dict[str, str]]:
+        # 日期过滤：只检索近 N 年的文献
+        current_year = datetime.now().year
+        mindate = str(current_year - max_age_years)
+        maxdate = str(current_year)
+        # 优化检索精度：优先综述、Meta 分析、临床试验
+        query_with_filter = f"({query}) AND ({mindate}[pdat]:{maxdate}[pdat])"
+        params = {
+            "db": "pubmed",
+            "term": query_with_filter,
+            "retmax": str(limit),
+            "retmode": "json",
+            "sort": "relevance",  # 按相关度排序（默认就是 relevance）
+        }
         if os.getenv("NCBI_API_KEY"):
             params["api_key"] = os.environ["NCBI_API_KEY"]
         if os.getenv("NCBI_EMAIL"):
@@ -47,6 +60,7 @@ class PubMedClient:
                     "journal": journal,
                     "year": year,
                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                    "_source": "pubmed",
                 }
             )
         return articles
