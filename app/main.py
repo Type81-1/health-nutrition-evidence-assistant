@@ -285,9 +285,8 @@ async def answer_question(payload: QuestionRequest) -> AnswerResponse:
         extra_evidence = _rerank_chunks(_pubmed_to_chunks(all_articles))
         if errors:
             pubmed_error = f"部分数据源暂不可用（{'；'.join(errors)}）"
-    # Wiki 优先查询：使用含多轮上下文的完整问题
-    context_q = _build_context(payload.conversation_id, payload.question.strip())
-    wiki_hits = wiki.search(context_q, top_n=1)
+    # Wiki 查询：仅当前问题（不做多轮继承，避免幻觉防御题误挂主题）
+    wiki_hits = wiki.search(payload.question.strip(), top_n=1)
     wiki_text = wiki_hits[0].to_text() if wiki_hits else None
 
     resp = answers.answer(
@@ -387,7 +386,7 @@ async def answer_stream(payload: QuestionRequest):
         source_note += "；" + pubmed_error
 
     # Wiki 查询
-    wiki_hits_stream = wiki.search(context_question, top_n=1)
+    wiki_hits_stream = wiki.search(payload.question.strip(), top_n=1)
 
     async def _stream():
         # 先发检索元数据
@@ -398,7 +397,7 @@ async def answer_stream(payload: QuestionRequest):
         yield f"data: {json.dumps(meta)}\n\n"
         full_text = ""
         # Wiki 上下文：附加到问题
-        stream_question = context_question
+        stream_question = payload.question.strip()
         if wiki_hits_stream:
             stream_question = f"以下为系统预整理的高频主题知识（来自 Wiki 知识库），请在此基础上结合检索证据回答问题：\n\n{wiki_hits_stream[0].to_text()}\n\n---\n{stream_question}"
         async for chunk in llm.stream_answer(stream_question, combined):
