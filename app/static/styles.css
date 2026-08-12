@@ -608,6 +608,58 @@ main {
   outline-offset: 2px;
 }
 
+/* ── Agent toggle ────────────────────────────────── */
+.agent-toggle-row {
+  display: flex; align-items: center; margin-top: 8px;
+}
+.agent-toggle {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 12px; color: var(--muted); user-select: none;
+}
+.agent-toggle input { display: none; }
+.agent-toggle-slider {
+  width: 32px; height: 18px; border-radius: 999px;
+  background: var(--line); transition: background .25s;
+  position: relative;
+}
+.agent-toggle-slider::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; transition: transform .25s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.15);
+}
+.agent-toggle input:checked + .agent-toggle-slider {
+  background: var(--accent);
+}
+.agent-toggle input:checked + .agent-toggle-slider::after {
+  transform: translateX(14px);
+}
+.agent-toggle-label { font-weight: 500; }
+.agent-toggle input:checked ~ .agent-toggle-label { color: var(--accent); font-weight: 600; }
+
+/* ── Agent trace (in message) ────────────────────── */
+.agent-trace {
+  margin-top: 12px; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.agent-trace summary {
+  padding: 8px 12px; font-size: 12px; font-weight: 600;
+  color: var(--muted); cursor: pointer; background: var(--paper-warm);
+}
+.agent-trace-steps { padding: 8px 12px; }
+.agent-trace-step {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--ink-soft); padding: 4px 0;
+}
+.agent-trace-step .agent-icon {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; flex-shrink: 0;
+}
+.agent-icon.researcher { background: #dbeafe; color: #1e40af; }
+.agent-icon.writer { background: #d1fae5; color: #065f46; }
+.agent-icon.critic { background: #fef3c7; color: #92400e; }
+
 /* ── Demo toggle & panel ─────────────────────────── */
 .demo-toggle-btn {
   background: linear-gradient(135deg, var(--warm-bg), #fff8e7) !important;

@@ -11,6 +11,17 @@ console.log('[食证] app.js v20260811b loaded');
 const REJECTION_PREAMBLE = '基于安全与伦理准则，';
 let conversationId = null;
 let messages = [];
+let agentMode = false;
+
+// ── Agent mode toggle ──
+const agentCheckbox = document.getElementById('agent-mode-checkbox');
+if (agentCheckbox) {
+  agentCheckbox.addEventListener('change', () => {
+    agentMode = agentCheckbox.checked;
+    // 切换模式时清空会话
+    startNewChat();
+  });
+}
 
 // ── 关键词高亮词表（按长度降序）──
 const HIGHLIGHT_TERMS = [
@@ -137,6 +148,23 @@ function renderAllMessages() {
     const safetyHtml = msg.safetyNote
       ? `<div class="message-safety">${escapeHtml(msg.safetyNote)}</div>`
       : '';
+    // Agent trace
+    const agentTraceHtml = msg._agentTrace && msg._agentTrace.length > 0
+      ? `<details class="agent-trace">
+           <summary>Agent 协作过程（${msg._agentTrace.length} 步）</summary>
+           <div class="agent-trace-steps">
+             ${msg._agentTrace.map(s => `
+               <div class="agent-trace-step">
+                 <span class="agent-icon ${s.agent.toLowerCase()}">${s.agent[0]}</span>
+                 <span>${s.agent}</span>
+                 <span style="color:var(--muted)">${s.status === 'running' ? '⏳' : '✅'}</span>
+                 <span style="font-size:11px;color:var(--muted)">${s.detail || s.message || ''}</span>
+               </div>
+             `).join('')}
+             ${msg._agentMeta ? `<div style="font-size:11px;color:var(--muted);margin-top:6px">总耗时 ${msg._agentMeta.total_ms}ms</div>` : ''}
+           </div>
+         </details>`
+      : '';
     // 操作按钮（仅在回答非空且未在流式传输中时显示）
     const isStreaming = msg._streaming && !msg.answer;
     const actionsHtml = msg.answer && !msg._pending && !msg._streaming
@@ -158,6 +186,7 @@ function renderAllMessages() {
           ${retrievalHtml}
           <div class="answer-content">${renderAnswer(msg.answer, i)}</div>
           ${actionsHtml}
+          ${agentTraceHtml}
           ${citationsHtml}
           ${safetyHtml}
         </div>
@@ -201,7 +230,8 @@ async function askQuestion() {
   const actionsEl = () => document.querySelector(`#msg-${tempMsgIndex} .message-actions`);
 
   try {
-    const response = await fetch('/api/answer/stream', {
+    const apiUrl = agentMode ? '/api/agent/ask/stream' : '/api/answer/stream';
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, include_pubmed: true, conversation_id: conversationId })
@@ -226,6 +256,35 @@ async function askQuestion() {
         try {
           const event = JSON.parse(line.slice(6));
           switch (event.type) {
+            case 'agent_start':
+              // Agent 模式：显示当前角色
+              messages[tempMsgIndex] = {
+                question,
+                answer: '',
+                citations: [],
+                retrievalNote: `[Agent] ${event.agent}: ${event.message}`,
+                safetyNote: '',
+                _pending: false,
+                _streaming: true,
+                _agentTrace: [{ agent: event.agent, status: 'running', message: event.message }],
+              };
+              renderAllMessages();
+              break;
+            case 'agent_done':
+              // 更新 Agent 进度
+              if (messages[tempMsgIndex]._agentTrace) {
+                const last = messages[tempMsgIndex]._agentTrace[messages[tempMsgIndex]._agentTrace.length - 1];
+                if (last && last.agent === event.agent) {
+                  last.status = 'done';
+                  last.detail = event.rounds ? `${event.rounds} 轮搜索` : (event.message || '');
+                } else {
+                  messages[tempMsgIndex]._agentTrace.push({ agent: event.agent, status: 'done', detail: event.rounds ? `${event.rounds} 轮搜索` : (event.message || '') });
+                }
+              }
+              // 更新 retrieval note
+              messages[tempMsgIndex].retrievalNote = `[Agent] ${event.agent} 完成`;
+              renderAllMessages();
+              break;
             case 'meta':
               streamMeta = event;
               messages[tempMsgIndex] = {
@@ -236,6 +295,8 @@ async function askQuestion() {
                 safetyNote: event.safety_note || '',
                 _pending: false,
                 _streaming: true,
+                _agentTrace: event.agent_mode ? (messages[tempMsgIndex]._agentTrace || []) : undefined,
+                _agentMeta: event.agent_mode ? event.trace : undefined,
               };
               // 初始渲染：显示检索来源 + 引用骨架
               renderAllMessages();

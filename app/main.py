@@ -294,6 +294,70 @@ async def agent_ask(payload: dict):
     return result
 
 
+@app.post("/api/agent/ask/stream")
+async def agent_ask_stream(payload: dict):
+    """多 Agent 协作问答 SSE 流式版 — 展示三角色进度 + 流式输出最终回答。"""
+    q = payload.get("question", "").strip()
+    if not q:
+        async def _err():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'question required'})}\n\n"
+        return StreamingResponse(_err(), media_type="text/event-stream")
+
+    domain = check_domain(q)
+    if not domain.safe:
+        async def _blocked():
+            yield f"data: {json.dumps({'type': 'blocked', 'reason': '域外问题，超出营养科普范围'})}\n\n"
+        return StreamingResponse(_blocked(), media_type="text/event-stream")
+
+    safety = check_safety(q)
+    if not safety.safe:
+        async def _blocked():
+            yield f"data: {json.dumps({'type': 'blocked', 'reason': safety.reason})}\n\n"
+        return StreamingResponse(_blocked(), media_type="text/event-stream")
+
+    async def _stream():
+        yield f"data: {json.dumps({'type': 'agent_start', 'agent': 'Researcher', 'message': '正在检索文献...'})}\n\n"
+
+        pipeline = get_agent_pipeline()
+        result = await pipeline.run(q)
+
+        # Researcher 完成
+        r_rounds = result.researcher_trace.search_rounds if result.researcher_trace else 0
+        r_tools = len(result.researcher_trace.tool_calls) if result.researcher_trace else 0
+        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Researcher', 'rounds': r_rounds, 'tools_called': r_tools})}\n\n"
+
+        # Writer 完成
+        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Writer', 'message': '正在撰写回答...'})}\n\n"
+
+        # Critic 完成
+        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': '正在审核回答...'})}\n\n"
+
+        # 流式输出最终回答
+        if result.success and result.answer:
+            for chunk in _chunk_text(result.answer):
+                yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
+
+        # Agent Trace（折叠展示用）
+        yield f"data: {json.dumps({'type': 'meta', 'agent_mode': True, 'trace': {'researcher_rounds': r_rounds, 'researcher_tools': r_tools, 'total_ms': round(result.total_duration_ms), 'error': result.error or ''}})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+def _chunk_text(text: str, size: int = 3):
+    """将文本按句子拆分为流式块（模拟逐句输出）。"""
+    # 按标点拆分
+    parts = re.split(r'(\n|。|！|？|；)', text)
+    buf = ""
+    for part in parts:
+        buf += part
+        if part in ('\n', '。', '！', '？', '；') and len(buf) >= size:
+            yield buf
+            buf = ""
+    if buf:
+        yield buf
+
+
 @app.get("/api/pipeline")
 def pipeline_config():
     """查看当前 Pipeline 配置（哪些步骤启用/禁用）。"""

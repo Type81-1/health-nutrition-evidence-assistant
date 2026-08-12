@@ -40,6 +40,13 @@
           <textarea id="question" rows="2" maxlength="500" placeholder="例如：地中海饮食对心血管风险有什么证据？"></textarea>
           <button id="ask-button" type="button">获取证据</button>
         </div>
+        <div class="agent-toggle-row">
+          <label class="agent-toggle" title="多Agent模式：Researcher检索 → Writer撰稿 → Critic审核">
+            <input type="checkbox" id="agent-mode-checkbox">
+            <span class="agent-toggle-slider"></span>
+            <span class="agent-toggle-label">多Agent模式</span>
+          </label>
+        </div>
         <div class="suggestions" aria-label="示例问题">
           <button type="button" data-question="地中海饮食对心血管风险有什么证据？">地中海饮食与心血管风险</button>
           <button type="button" data-question="限钠饮食对高血压是否真的有帮助？">限钠饮食与高血压</button>
@@ -58,6 +65,6 @@
     </section>
   </main>
   <footer>用于健康教育和文献线索整理，不用于诊断或治疗决策。</footer>
-  <script src="/static/app.js?v=20260811b"></script>
+  <script src="/static/app.js?v=20260812"></script>
 </body>
 </html>
