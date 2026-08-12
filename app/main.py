@@ -20,7 +20,9 @@ from app.services.skills import list_skills, activate_skills, compose_system_pro
 from app.services.tools import list_tools, call_tool, TOOL_REGISTRY
 from app.services.mcp_handler import process_request, MCP_VERSION, SERVER_NAME
 from app.services.workflow import build_default_pipeline, Pipeline, PipelineContext
+from app.services.agent_pipeline import run_multi_agent, get_agent_pipeline, RESEARCHER_PROMPT, WRITER_PROMPT, CRITIC_PROMPT
 from app.services.wiki_store import WikiStore, seed_wiki_store
+from app.services.validator import validate as _validate, run_l1_checks, run_l3_flags
 
 
 def _pubmed_to_chunks(articles: list[dict[str, str]]) -> list[EvidenceChunk]:
@@ -268,6 +270,192 @@ def mcp_info():
             "initialize": "POST /mcp  {\"method\":\"initialize\"}",
         },
     }
+
+
+@app.post("/api/agent/ask")
+async def agent_ask(payload: dict):
+    """多 Agent 协作问答（Researcher → Writer → Critic）。
+
+    输入: {"question": "..."}
+    输出: 只返回最终回答 + 元数据（中间产物不暴露）
+    """
+    q = payload.get("question", "").strip()
+    if not q:
+        return {"error": "question required"}
+
+    domain = check_domain(q)
+    if not domain.safe:
+        return {"answer": "我是专门提供健康营养循证科普的助手。您的问题超出了我的知识范围。", "blocked": True, "reason": domain.reason}
+
+    safety = check_safety(q)
+    if not safety.safe:
+        return {"answer": f"基于安全与伦理准则，{safety.reason}", "blocked": True, "reason": safety.reason}
+
+    result = await run_multi_agent(q)
+    return result
+
+
+@app.post("/api/agent/ask/stream")
+async def agent_ask_stream(payload: dict):
+    """多 Agent 协作问答 SSE 流式版 — 展示三角色进度 + 流式输出最终回答。"""
+    q = payload.get("question", "").strip()
+    if not q:
+        async def _err():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'question required'})}\n\n"
+        return StreamingResponse(_err(), media_type="text/event-stream")
+
+    domain = check_domain(q)
+    if not domain.safe:
+        async def _blocked():
+            yield f"data: {json.dumps({'type': 'blocked', 'reason': '域外问题，超出营养科普范围'})}\n\n"
+        return StreamingResponse(_blocked(), media_type="text/event-stream")
+
+    safety = check_safety(q)
+    if not safety.safe:
+        async def _blocked():
+            yield f"data: {json.dumps({'type': 'blocked', 'reason': safety.reason})}\n\n"
+        return StreamingResponse(_blocked(), media_type="text/event-stream")
+
+    async def _stream():
+        import time as _time
+        t_start = _time.perf_counter()
+        pipeline = get_agent_pipeline()
+        runner = pipeline.runner
+
+        # ── Agent 1: Researcher（实时发送进度）──
+        yield f"data: {json.dumps({'type': 'agent_start', 'agent': 'Researcher', 'message': '正在检索文献...'})}\n\n"
+
+        # 先预检索本地 KB
+        local_store = EvidenceStore()
+        llm_tmp = OpenAICompatibleLlm()
+        search_q = llm_tmp.translate_to_pubmed_query(q) or q
+        local_results = local_store.search(search_q, limit=5)
+        local_summary = ""
+        if local_results:
+            local_summary = "【本地知识库预检索结果】\n"
+            for i, c in enumerate(local_results, 1):
+                local_summary += f"E{i}. PMID:{c.id.replace('kb-','').replace('pubmed-','')} | {c.title} | {c.evidence_level}\n"
+
+        researcher_input = (
+            f"用户问题：{q}\n\n{local_summary}\n---\n"
+            f"以上为本地知识库的预检索结果。如果本地结果足够相关（>=3条），直接整理输出。"
+            f"如果不够，请调用 search_pubmed 补充检索。最多 3 轮。"
+            f"最终输出 3-5 条最相关文献的 PMID + 标题 + 相关性说明。"
+        )
+        researcher_result = await runner.run(
+            system_prompt=RESEARCHER_PROMPT,
+            user_message=researcher_input,
+            agent_name="Researcher",
+            allowed_tools=["search_pubmed"],
+            max_rounds=3,
+        )
+        r_rounds = researcher_result.trace.search_rounds
+        r_tools = len(researcher_result.trace.tool_calls)
+        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Researcher', 'rounds': r_rounds, 'tools_called': r_tools})}\n\n"
+
+        if not researcher_result.success:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Researcher 检索失败'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+
+        # ── Agent 2: Writer ──
+        yield f"data: {json.dumps({'type': 'agent_start', 'agent': 'Writer', 'message': '正在撰写回答...'})}\n\n"
+        writer_input = (
+            f"用户问题：{q}\n\n"
+            f"以下为 Researcher 检索到的文献证据：\n\n{researcher_result.output}\n\n"
+            f"请基于以上证据，写一份循证科普回答（四段式：【通俗总结】【核心科学依据】【日常落地做法】【注意事项】）。"
+        )
+        writer_result = await runner.run(
+            system_prompt=WRITER_PROMPT,
+            user_message=writer_input,
+            agent_name="Writer",
+            allowed_tools=None,
+            max_rounds=1,
+        )
+        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Writer', 'message': ''})}\n\n"
+
+        # ── Agent 3: Critic（后台运行 + 每 5s 心跳防止浏览器断连）──
+        yield f"data: {json.dumps({'type': 'agent_start', 'agent': 'Critic', 'message': '正在审核回答...'})}\n\n"
+        critic_input = (
+            f"用户问题：{q}\n\n"
+            f"Researcher 检索到的文献证据：\n\n{researcher_result.output[:1000]}\n\n"
+            f"---\nWriter 撰写的回答草稿：\n\n{(writer_result.output if writer_result.success else researcher_result.output)[:1500]}\n\n---\n"
+            f"请逐条核查引用、措辞、安全性、可读性，输出修正后的最终回答。直接输出修改后的回答，不要输出审查报告。"
+        )
+
+        import httpx as _httpx
+        from app.services.agent_pipeline import AgentTrace, AgentResult
+        critic_result = None
+        critic_done = False
+
+        # 在后台线程运行 Critic，主线程每 5s 发心跳
+        import concurrent.futures as _cf
+        _executor = _cf.ThreadPoolExecutor(max_workers=1)
+
+        def _run_critic():
+            try:
+                _cr = _httpx.post(
+                    llm.api_url,
+                    headers={"Authorization": f"Bearer {llm.api_key}"},
+                    json={
+                        "model": llm.model, "temperature": 0.1,
+                        "messages": [
+                            {"role": "system", "content": CRITIC_PROMPT},
+                            {"role": "user", "content": critic_input},
+                        ],
+                    },
+                    timeout=20,
+                )
+                _cr.raise_for_status()
+                raw = _cr.json()["choices"][0]["message"]["content"].strip()
+                if raw and len(raw) > 50:
+                    return AgentResult(output=raw, trace=AgentTrace(agent="Critic"), success=True)
+            except Exception:
+                pass
+            return None
+
+        _future = _executor.submit(_run_critic)
+        while not critic_done:
+            try:
+                critic_result = _future.result(timeout=5)
+                critic_done = True
+            except _cf.TimeoutError:
+                yield f"data: {json.dumps({'type': 'heartbeat', 'agent': 'Critic'})}\n\n"
+
+        _executor.shutdown(wait=False)
+
+        # 始终发送 Critic agent_done（即使超时/失败也通知前端）
+        critic_ok = critic_result is not None and critic_result.success
+        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'status': 'ok' if critic_ok else 'fallback', 'message': '' if critic_ok else '审核超时，回退到 Writer 输出'})}\n\n"
+
+        # ── 流式输出最终回答 ──
+        final_answer = (
+            critic_result.output if critic_ok
+            else (writer_result.output if writer_result.success else researcher_result.output)
+        )
+        if final_answer:
+            for chunk in _chunk_text(final_answer):
+                yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
+
+        total_ms = round((_time.perf_counter() - t_start) * 1000)
+        yield f"data: {json.dumps({'type': 'agent_meta', 'trace': {'researcher_rounds': r_rounds, 'researcher_tools': r_tools, 'total_ms': total_ms}})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+def _chunk_text(text: str, size: int = 3):
+    """将文本按句子拆分为流式块（模拟逐句输出）。"""
+    # 按标点拆分
+    parts = re.split(r'(\n|。|！|？|；)', text)
+    buf = ""
+    for part in parts:
+        buf += part
+        if part in ('\n', '。', '！', '？', '；') and len(buf) >= size:
+            yield buf
+            buf = ""
+    if buf:
+        yield buf
 
 
 @app.get("/api/pipeline")
@@ -549,6 +737,42 @@ async def pubmed_search(payload: PubMedSearchRequest) -> dict[str, list[dict[str
         return {"articles": await pubmed.search(query, payload.limit)}
     except Exception as exc:
         raise HTTPException(status_code=502, detail="PubMed 当前无法访问，请稍后重试。") from exc
+
+
+@app.post("/api/validate")
+async def validate_answer(payload: dict):
+    """三层校验：L1 硬规则 + L2 LLM 语义打分 + L3 人工复核标记。"""
+    q = payload.get("question", "").strip()
+    a = payload.get("answer", "").strip()
+    c = payload.get("citations", [])
+    run_l2 = payload.get("run_l2", False)  # L2 较耗时，默认关闭
+
+    if not q or not a:
+        return {"error": "question 和 answer 不能为空"}
+
+    l1 = run_l1_checks(q, a, c)
+    l3 = run_l3_flags(a)
+
+    result = {
+        "question": q,
+        "answer_preview": a[:200],
+        "l1_passed": l1.passed,
+        "l1_details": l1.reject_reason,
+        "l3_needs_review": l3.needs_review,
+        "l3_risk_level": l3.risk_level,
+        "l3_flags": l3.risk_flags,
+    }
+
+    if run_l2:
+        from app.services.validator import run_l2_scoring
+        l2 = run_l2_scoring(q, a, llm)
+        result["l2_score"] = l2.total_score
+        result["l2_dimensions"] = l2.dimension_scores
+        result["l2_flags"] = l2.flags
+        result["l2_summary"] = l2.summary
+
+    result["overall_pass"] = l1.passed and l3.risk_level != "high"
+    return result
 
 
 if __name__ == "__main__":

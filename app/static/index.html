@@ -10,27 +10,43 @@
   <meta property="og:type" content="website">
   <meta name="theme-color" content="#0c765d">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230c765d'/><text x='16' y='24' text-anchor='middle' font-size='22' fill='white' font-family='serif'>食</text></svg>">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Source+Serif+4:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=20260813">
 </head>
 <body>
   <a href="#chat-messages" class="skip-link">跳到主内容</a>
   <header class="topbar">
     <a class="brand" href="/" aria-label="食证首页"><span class="brand-mark">食</span><span>食证</span></a>
     <div class="topbar-actions">
+      <div class="wiki-menu">
+        <button id="wiki-toggle" class="wiki-toggle" type="button" aria-controls="wiki-section" aria-expanded="false">专题</button>
+        <div id="wiki-menu-list" class="wiki-menu-list is-hidden" role="menu">
+          <button type="button" data-wiki-topic="blood-pressure" role="menuitem">血压管理</button>
+          <button type="button" data-wiki-topic="weight-management" role="menuitem">体重管理</button>
+          <button type="button" data-wiki-topic="lipid-management" role="menuitem">血脂管理</button>
+          <button type="button" data-wiki-topic="glucose-management" role="menuitem">血糖管理</button>
+        </div>
+      </div>
       <a href="/wiki" class="nav-wiki-link" title="浏览证据库"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="margin-right:4px;vertical-align:-2px;"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>证据库</a>
       <button id="new-chat-button" class="new-chat-button" type="button" title="开始新对话"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="margin-right:4px;vertical-align:-2px;"><path d="M12 5v14M5 12h14"/></svg>新对话</button>
+      <button id="history-toggle" class="history-toggle" type="button" aria-controls="history-drawer" aria-expanded="false">
+        对话历史 <span id="history-count" class="history-count">0</span>
+      </button>
       <span class="topbar-meta"><span class="status-dot"></span>证据优先</span>
     </div>
   </header>
   <main>
     <section id="intro" class="intro">
+      <p class="eyebrow">NUTRITION EVIDENCE, EXPLAINED</p>
       <h1>让每一条健康建议<br>都能找到依据。</h1>
       <p class="intro-copy">面向日常饮食、血压与血脂问题的可追溯科普。先检索公开证据，再用普通人能读懂的语言回答。支持连续追问。</p>
     </section>
     <section class="chat-container" aria-label="对话区">
       <div id="chat-messages" class="chat-messages">
         <div id="chat-empty" class="chat-empty">
-          <div class="empty-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/><path d="M8 11h6M11 8v6"/></svg></div>
+          <div class="empty-icon">+</div>
           <p><strong>输入你的健康营养问题</strong><br>系统将检索 PubMed + Europe PMC 公开文献，用通俗语言给出有据可查的回答。你也可以连续追问，系统会结合上下文理解你的意图。</p>
         </div>
       </div>
@@ -40,13 +56,20 @@
           <textarea id="question" rows="2" maxlength="500" placeholder="例如：地中海饮食对心血管风险有什么证据？"></textarea>
           <button id="ask-button" type="button">获取证据</button>
         </div>
+        <div class="agent-toggle-row">
+          <label class="agent-toggle" title="多Agent模式：Researcher检索 → Writer撰稿 → Critic审核">
+            <input type="checkbox" id="agent-mode-checkbox">
+            <span class="agent-toggle-slider"></span>
+            <span class="agent-toggle-label">多Agent模式</span>
+          </label>
+        </div>
         <div class="suggestions" aria-label="示例问题">
           <button type="button" data-question="地中海饮食对心血管风险有什么证据？">地中海饮食与心血管风险</button>
           <button type="button" data-question="限钠饮食对高血压是否真的有帮助？">限钠饮食与高血压</button>
           <button type="button" data-question="血脂偏高的人应该只靠保健品吗？">血脂偏高如何看待保健品</button>
+          <button type="button" data-question="DASH 饮食和少盐可以一起做吗？">DASH 与少盐</button>
           <button type="button" id="demo-toggle" class="demo-toggle-btn" title="打开演示模式">🎯 演示模式</button>
         </div>
-        <!-- 演示面板 -->
         <div id="demo-panel" class="demo-panel" style="display:none">
           <div class="demo-panel-header">
             <span class="demo-panel-title">演示问题集（10 题 · 5 大特性）</span>
@@ -56,8 +79,61 @@
         </div>
       </div>
     </section>
+    <section id="wiki-section" class="wiki-section is-hidden" aria-live="polite">
+      <div class="wiki-heading">
+        <div>
+          <p class="eyebrow">EVIDENCE WIKI</p>
+          <h2 id="wiki-title"></h2>
+          <p id="wiki-subtitle" class="wiki-subtitle"></p>
+        </div>
+        <button id="wiki-close" class="secondary-button wiki-close" type="button">返回问答</button>
+      </div>
+      <p id="wiki-updated" class="wiki-updated"></p>
+      <div id="wiki-sections" class="wiki-sections"></div>
+      <div class="wiki-references-heading">
+        <p class="eyebrow">REFERENCES</p>
+        <h3>本专题来源</h3>
+      </div>
+      <div id="wiki-references" class="wiki-references"></div>
+    </section>
   </main>
-  <footer>用于健康教育和文献线索整理，不用于诊断或治疗决策。</footer>
-  <script src="/static/app.js?v=20260811b"></script>
+  <button id="history-backdrop" class="history-backdrop is-hidden" type="button" aria-label="关闭对话历史"></button>
+  <aside id="history-drawer" class="history-drawer is-hidden" aria-hidden="true" aria-label="对话历史">
+    <div class="history-heading">
+      <div>
+        <p class="eyebrow">RECENT QUESTIONS</p>
+        <h2>对话历史</h2>
+      </div>
+      <button id="history-close" class="icon-button" type="button" aria-label="关闭对话历史" title="关闭">&times;</button>
+    </div>
+    <div id="history-list" class="history-list"></div>
+    <p id="history-empty" class="history-empty">还没有保存的提问。</p>
+    <button id="history-clear" class="history-clear" type="button">清空历史</button>
+  </aside>
+  <footer>
+    <span>AI 辅助整理</span>
+    <span>仅使用公开证据来源</span>
+    <span>非诊疗、非个体化建议</span>
+    <span>紧急情况请及时就医</span>
+    <button id="ethics-toggle" type="button">伦理与免责声明</button>
+  </footer>
+  <dialog id="ethics-dialog" class="ethics-dialog">
+    <div class="ethics-dialog-heading">
+      <h2>伦理与免责声明</h2>
+      <button id="ethics-close" class="icon-button" type="button" aria-label="关闭伦理与免责声明" title="关闭">&times;</button>
+    </div>
+    <div class="ethics-content">
+      <p>本系统为"食证"健康营养证据助手，仅用于健康教育与文献线索整理，不属于医疗器械或临床决策支持系统。</p>
+      <ol>
+        <li><h3>不构成医疗建议</h3><p>系统生成的内容仅供参考，不构成诊断、处方、治疗方案或其他医疗建议，不能替代执业医师的专业判断。</p></li>
+        <li><h3>证据可能存在局限</h3><p>系统使用 AI 和检索增强生成技术处理公开资料，可能出现检索遗漏、内容过时或引用对应错误等情况。</p></li>
+        <li><h3>重要信息须人工核验</h3><p>用户应核对原始文献、指南版本、发布日期及证据等级。涉及健康决策应咨询具备资质的专业人员。</p></li>
+        <li><h3>不得输入真实患者敏感信息</h3><p>本系统不用于处理真实患者数据。请勿输入姓名、身份证号、病历号等可识别个人身份的信息。</p></li>
+        <li><h3>不得用于紧急医疗情形</h3><p>出现胸痛、呼吸困难、意识障碍等紧急情况时，应立即拨打 120 或前往正规医疗机构。</p></li>
+      </ol>
+      <p class="ethics-consent">继续使用本系统，即表示您已理解上述限制，并同意仅在教学、科研辅助和证据检索范围内审慎使用。</p>
+    </div>
+  </dialog>
+  <script src="/static/app.js?v=20260813"></script>
 </body>
 </html>
