@@ -18,6 +18,7 @@ from app.services.query_logger import QueryTrace
 from app.services.source_plugins import EuropePmcOpenAccessPlugin
 from app.services.skills import list_skills, activate_skills, compose_system_prompt as _compose_prompt
 from app.services.tools import list_tools, call_tool, TOOL_REGISTRY
+from app.services.mcp_handler import process_request, MCP_VERSION, SERVER_NAME
 from app.services.wiki_store import WikiStore, seed_wiki_store
 
 
@@ -231,6 +232,41 @@ async def tools_call(tool_name: str, payload: dict):
 def skills_list(category: str = "") -> list[dict]:
     """列出所有可用 Skill 及其触发条件。"""
     return list_skills(category)
+
+
+@app.post("/mcp")
+async def mcp_endpoint(payload: dict):
+    """MCP JSON-RPC 2.0 HTTP 端点。
+
+    兼容 Claude Desktop / 任何 MCP 客户端通过 HTTP 调用。
+    也支持批量请求（JSON-RPC batch = array of requests）。
+    """
+    # 批量请求
+    if isinstance(payload, list):
+        results = []
+        for req in payload:
+            results.append(await process_request(req))
+        return results
+    # 单个请求
+    return await process_request(payload)
+
+
+@app.get("/mcp")
+def mcp_info():
+    """MCP 服务信息。"""
+    return {
+        "protocol": "MCP (Model Context Protocol)",
+        "version": MCP_VERSION,
+        "server": SERVER_NAME,
+        "transport": "HTTP POST /mcp  (STDIO: scripts/run_mcp_stdio.py)",
+        "tools_count": len(TOOL_REGISTRY),
+        "endpoints": {
+            "tools/list": "POST /mcp  {\"method\":\"tools/list\"}",
+            "tools/call": "POST /mcp  {\"method\":\"tools/call\",\"params\":{\"name\":\"...\",\"arguments\":{...}}}",
+            "resources/list": "POST /mcp  {\"method\":\"resources/list\"}",
+            "initialize": "POST /mcp  {\"method\":\"initialize\"}",
+        },
+    }
 
 
 @app.get("/api/skills/activate")
