@@ -19,6 +19,7 @@ from app.services.source_plugins import EuropePmcOpenAccessPlugin
 from app.services.skills import list_skills, activate_skills, compose_system_prompt as _compose_prompt
 from app.services.tools import list_tools, call_tool, TOOL_REGISTRY
 from app.services.mcp_handler import process_request, MCP_VERSION, SERVER_NAME
+from app.services.workflow import build_default_pipeline, Pipeline, PipelineContext
 from app.services.wiki_store import WikiStore, seed_wiki_store
 
 
@@ -266,6 +267,46 @@ def mcp_info():
             "resources/list": "POST /mcp  {\"method\":\"resources/list\"}",
             "initialize": "POST /mcp  {\"method\":\"initialize\"}",
         },
+    }
+
+
+@app.get("/api/pipeline")
+def pipeline_config():
+    """查看当前 Pipeline 配置（哪些步骤启用/禁用）。"""
+    p = build_default_pipeline()
+    return {
+        "steps": [
+            {"name": s.name, "description": s.description, "enabled": s.enabled, "category": s.category}
+            for s in p.steps
+        ]
+    }
+
+
+@app.post("/api/pipeline/test")
+async def pipeline_test(payload: dict):
+    """测试：用 Pipeline 引擎回答一个问题，返回每步执行轨迹。"""
+    q = payload.get("question", "").strip()
+    if not q:
+        return {"error": "question required"}
+
+    p = build_default_pipeline()
+    ctx = PipelineContext(question=q)
+    ctx = await p.run(ctx)
+
+    # 构建类似 AnswerResponse 的输出
+    from app.schemas import AnswerResponse, Citation
+
+    return {
+        "question": q,
+        "answer": ctx.answer_text[:500],
+        "retrieval_note": ctx.retrieval_note,
+        "evidence_count": len(ctx.combined_evidence),
+        "domain_blocked": ctx.domain_blocked,
+        "safety_blocked": ctx.safety_blocked,
+        "no_evidence": ctx.no_evidence,
+        "citation_invalid": ctx.citation_invalid,
+        "errors": ctx.errors,
+        "pipeline_trace": ctx.step_traces,
     }
 
 
