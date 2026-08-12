@@ -382,16 +382,29 @@ async def agent_ask_stream(payload: dict):
             f"请逐条核查引用、措辞、安全性、可读性，输出修正后的最终回答。直接输出修改后的回答，不要输出审查报告。"
         )
         try:
-            critic_result = await asyncio.wait_for(
-                runner.run(
-                    system_prompt=CRITIC_PROMPT,
-                    user_message=critic_input,
-                    agent_name="Critic",
-                    allowed_tools=None,
-                    max_rounds=1,
-                ),
-                timeout=30,
+            # Critic 用独立 httpx 直接调用（20s 超时，无重试），避免 runner 的 135s 链路
+            import httpx as _httpx
+            _cr = _httpx.post(
+                llm.api_url,
+                headers={"Authorization": f"Bearer {llm.api_key}"},
+                json={
+                    "model": llm.model, "temperature": 0.1,
+                    "messages": [
+                        {"role": "system", "content": CRITIC_PROMPT},
+                        {"role": "user", "content": critic_input},
+                    ],
+                },
+                timeout=20,
             )
+            _cr.raise_for_status()
+            critic_raw = _cr.json()["choices"][0]["message"]["content"].strip()
+            if critic_raw and len(critic_raw) > 50:
+                from app.services.agent_pipeline import AgentTrace, AgentResult
+                critic_result = AgentResult(output=critic_raw, trace=AgentTrace(agent="Critic"), success=True)
+            else:
+                critic_result = None
+        except Exception:
+            critic_result = None
         except asyncio.TimeoutError:
             critic_result = None
             yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': '超时跳过，使用 Writer 原稿'})}\n\n"
