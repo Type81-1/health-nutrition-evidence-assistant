@@ -20,7 +20,7 @@ from app.services.skills import list_skills, activate_skills, compose_system_pro
 from app.services.tools import list_tools, call_tool, TOOL_REGISTRY
 from app.services.mcp_handler import process_request, MCP_VERSION, SERVER_NAME
 from app.services.workflow import build_default_pipeline, Pipeline, PipelineContext
-from app.services.agent_pipeline import run_multi_agent, get_agent_pipeline
+from app.services.agent_pipeline import run_multi_agent, get_agent_pipeline, RESEARCHER_PROMPT, WRITER_PROMPT, CRITIC_PROMPT
 from app.services.wiki_store import WikiStore, seed_wiki_store
 
 
@@ -316,29 +316,88 @@ async def agent_ask_stream(payload: dict):
         return StreamingResponse(_blocked(), media_type="text/event-stream")
 
     async def _stream():
+        import time as _time
+        t_start = _time.perf_counter()
+        pipeline = get_agent_pipeline()
+        runner = pipeline.runner
+
+        # ── Agent 1: Researcher（实时发送进度）──
         yield f"data: {json.dumps({'type': 'agent_start', 'agent': 'Researcher', 'message': '正在检索文献...'})}\n\n"
 
-        pipeline = get_agent_pipeline()
-        result = await pipeline.run(q)
+        # 先预检索本地 KB
+        local_store = EvidenceStore()
+        llm_tmp = OpenAICompatibleLlm()
+        search_q = llm_tmp.translate_to_pubmed_query(q) or q
+        local_results = local_store.search(search_q, limit=5)
+        local_summary = ""
+        if local_results:
+            local_summary = "【本地知识库预检索结果】\n"
+            for i, c in enumerate(local_results, 1):
+                local_summary += f"E{i}. PMID:{c.id.replace('kb-','').replace('pubmed-','')} | {c.title} | {c.evidence_level}\n"
 
-        # Researcher 完成
-        r_rounds = result.researcher_trace.search_rounds if result.researcher_trace else 0
-        r_tools = len(result.researcher_trace.tool_calls) if result.researcher_trace else 0
+        researcher_input = (
+            f"用户问题：{q}\n\n{local_summary}\n---\n"
+            f"以上为本地知识库的预检索结果。如果本地结果足够相关（>=3条），直接整理输出。"
+            f"如果不够，请调用 search_pubmed 补充检索。最多 3 轮。"
+            f"最终输出 3-5 条最相关文献的 PMID + 标题 + 相关性说明。"
+        )
+        researcher_result = await runner.run(
+            system_prompt=RESEARCHER_PROMPT,
+            user_message=researcher_input,
+            agent_name="Researcher",
+            allowed_tools=["search_pubmed"],
+            max_rounds=3,
+        )
+        r_rounds = researcher_result.trace.search_rounds
+        r_tools = len(researcher_result.trace.tool_calls)
         yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Researcher', 'rounds': r_rounds, 'tools_called': r_tools})}\n\n"
 
-        # Writer 完成
-        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Writer', 'message': '正在撰写回答...'})}\n\n"
+        if not researcher_result.success:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Researcher 检索失败'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
 
-        # Critic 完成
-        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': '正在审核回答...'})}\n\n"
+        # ── Agent 2: Writer ──
+        yield f"data: {json.dumps({'type': 'agent_start', 'agent': 'Writer', 'message': '正在撰写回答...'})}\n\n"
+        writer_input = (
+            f"用户问题：{q}\n\n"
+            f"以下为 Researcher 检索到的文献证据：\n\n{researcher_result.output}\n\n"
+            f"请基于以上证据，写一份循证科普回答（四段式：【通俗总结】【核心科学依据】【日常落地做法】【注意事项】）。"
+        )
+        writer_result = await runner.run(
+            system_prompt=WRITER_PROMPT,
+            user_message=writer_input,
+            agent_name="Writer",
+            allowed_tools=None,
+            max_rounds=1,
+        )
+        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Writer', 'message': ''})}\n\n"
 
-        # 流式输出最终回答
-        if result.success and result.answer:
-            for chunk in _chunk_text(result.answer):
+        # ── Agent 3: Critic ──
+        yield f"data: {json.dumps({'type': 'agent_start', 'agent': 'Critic', 'message': '正在审核回答...'})}\n\n"
+        critic_input = (
+            f"用户问题：{q}\n\n"
+            f"Researcher 检索到的文献证据：\n\n{researcher_result.output}\n\n"
+            f"---\nWriter 撰写的回答草稿：\n\n{writer_result.output if writer_result.success else researcher_result.output}\n\n---\n"
+            f"请逐条核查引用、措辞、安全性、可读性，输出修正后的最终回答。直接输出修改后的回答，不要输出审查报告。"
+        )
+        critic_result = await runner.run(
+            system_prompt=CRITIC_PROMPT,
+            user_message=critic_input,
+            agent_name="Critic",
+            allowed_tools=None,
+            max_rounds=1,
+        )
+        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': ''})}\n\n"
+
+        # ── 流式输出最终回答 ──
+        final_answer = critic_result.output if critic_result.success else (writer_result.output if writer_result.success else researcher_result.output)
+        if final_answer:
+            for chunk in _chunk_text(final_answer):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
 
-        # Agent Trace（折叠展示用）
-        yield f"data: {json.dumps({'type': 'meta', 'agent_mode': True, 'trace': {'researcher_rounds': r_rounds, 'researcher_tools': r_tools, 'total_ms': round(result.total_duration_ms), 'error': result.error or ''}})}\n\n"
+        total_ms = round((_time.perf_counter() - t_start) * 1000)
+        yield f"data: {json.dumps({'type': 'meta', 'agent_mode': True, 'trace': {'researcher_rounds': r_rounds, 'researcher_tools': r_tools, 'total_ms': total_ms}})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
