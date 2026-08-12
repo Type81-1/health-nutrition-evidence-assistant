@@ -16,6 +16,7 @@ from app.services.llm_client import OpenAICompatibleLlm
 from app.services.pubmed_client import PubMedClient
 from app.services.query_logger import QueryTrace
 from app.services.source_plugins import EuropePmcOpenAccessPlugin
+from app.services.tools import list_tools, call_tool, TOOL_REGISTRY
 from app.services.wiki_store import WikiStore, seed_wiki_store
 
 
@@ -211,6 +212,18 @@ def wiki_topics(q: str = "") -> list[dict]:
     else:
         topics = list(wiki._topics.values())
     return [t.to_dict() for t in topics]
+
+
+@app.get("/api/tools")
+def tools_list(category: str = "") -> list[dict]:
+    """列出所有可用工具及其 JSON Schema。"""
+    return list_tools(category)
+
+
+@app.post("/api/tools/{tool_name}")
+async def tools_call(tool_name: str, payload: dict):
+    """调用指定工具。输入为标准 JSON，输出为 ToolResult。"""
+    return await call_tool(tool_name, payload)
 
 
 @app.get("/api/wiki/topics/{topic_id}")
