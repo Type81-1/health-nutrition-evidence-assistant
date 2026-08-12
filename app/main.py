@@ -22,6 +22,7 @@ from app.services.mcp_handler import process_request, MCP_VERSION, SERVER_NAME
 from app.services.workflow import build_default_pipeline, Pipeline, PipelineContext
 from app.services.agent_pipeline import run_multi_agent, get_agent_pipeline, RESEARCHER_PROMPT, WRITER_PROMPT, CRITIC_PROMPT
 from app.services.wiki_store import WikiStore, seed_wiki_store
+from app.services.validator import validate as _validate, run_l1_checks, run_l3_flags
 
 
 def _pubmed_to_chunks(articles: list[dict[str, str]]) -> list[EvidenceChunk]:
@@ -423,12 +424,13 @@ async def agent_ask_stream(payload: dict):
 
         _executor.shutdown(wait=False)
 
-        if critic_result is not None:
-            yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': ''})}\n\n"
+        # 始终发送 Critic agent_done（即使超时/失败也通知前端）
+        critic_ok = critic_result is not None and critic_result.success
+        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'status': 'ok' if critic_ok else 'fallback', 'message': '' if critic_ok else '审核超时，回退到 Writer 输出'})}\n\n"
 
         # ── 流式输出最终回答 ──
         final_answer = (
-            critic_result.output if (critic_result is not None and critic_result.success)
+            critic_result.output if critic_ok
             else (writer_result.output if writer_result.success else researcher_result.output)
         )
         if final_answer:
@@ -436,7 +438,7 @@ async def agent_ask_stream(payload: dict):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
 
         total_ms = round((_time.perf_counter() - t_start) * 1000)
-        yield f"data: {json.dumps({'type': 'meta', 'agent_mode': True, 'trace': {'researcher_rounds': r_rounds, 'researcher_tools': r_tools, 'total_ms': total_ms}})}\n\n"
+        yield f"data: {json.dumps({'type': 'agent_meta', 'trace': {'researcher_rounds': r_rounds, 'researcher_tools': r_tools, 'total_ms': total_ms}})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
@@ -735,6 +737,42 @@ async def pubmed_search(payload: PubMedSearchRequest) -> dict[str, list[dict[str
         return {"articles": await pubmed.search(query, payload.limit)}
     except Exception as exc:
         raise HTTPException(status_code=502, detail="PubMed 当前无法访问，请稍后重试。") from exc
+
+
+@app.post("/api/validate")
+async def validate_answer(payload: dict):
+    """三层校验：L1 硬规则 + L2 LLM 语义打分 + L3 人工复核标记。"""
+    q = payload.get("question", "").strip()
+    a = payload.get("answer", "").strip()
+    c = payload.get("citations", [])
+    run_l2 = payload.get("run_l2", False)  # L2 较耗时，默认关闭
+
+    if not q or not a:
+        return {"error": "question 和 answer 不能为空"}
+
+    l1 = run_l1_checks(q, a, c)
+    l3 = run_l3_flags(a)
+
+    result = {
+        "question": q,
+        "answer_preview": a[:200],
+        "l1_passed": l1.passed,
+        "l1_details": l1.reject_reason,
+        "l3_needs_review": l3.needs_review,
+        "l3_risk_level": l3.risk_level,
+        "l3_flags": l3.risk_flags,
+    }
+
+    if run_l2:
+        from app.services.validator import run_l2_scoring
+        l2 = run_l2_scoring(q, a, llm)
+        result["l2_score"] = l2.total_score
+        result["l2_dimensions"] = l2.dimension_scores
+        result["l2_flags"] = l2.flags
+        result["l2_summary"] = l2.summary
+
+    result["overall_pass"] = l1.passed and l3.risk_level != "high"
+    return result
 
 
 if __name__ == "__main__":

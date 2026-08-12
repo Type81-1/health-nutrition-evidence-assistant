@@ -26,11 +26,19 @@ from app.services.llm_client import OpenAICompatibleLlm
 RESEARCHER_PROMPT = """你是医学文献检索专家（Researcher Agent）。
 
 任务：根据用户问题，调用 search_pubmed 检索最相关的文献。
+
+工具：你可以调用 search_pubmed(query="英文关键词", limit=5, max_age_years=10)
+- 当你需要检索文献时，在回复中插入一个 JSON 工具调用块（独占一行）：
+  <<<TOOL>>>{"tool": "search_pubmed", "args": {"query": "你的英文检索词", "limit": 5, "max_age_years": 10}}<<<END>>>
+- 系统会执行这个检索并返回结果，然后你继续分析。
+- 你可以多次调用（最多 3 次），每次根据上一轮结果调整检索词。
+
 约束：
 - 最多执行 3 次搜索（含改写检索词重试）
 - 每次搜索后判断结果是否相关：相关则停止，不相关则改写关键词重试
 - 如果 3 次后仍无相关结果，诚实报告"未检索到直接相关证据"
-- 最终输出：3-5 条最相关文献的 PMID + 标题 + 为什么相关（每条一句话）
+- 当你确定不再需要检索时，直接输出最终结果（不要插入 TOOL 块）
+- 最终输出格式：3-5 条最相关文献的 PMID + 标题 + 为什么相关（每条一句话）
 
 不要写完整回答，不要给建议，不要诊断。你只负责找文献。"""
 
@@ -102,94 +110,81 @@ class AgentRunner:
         max_rounds: int,
         agent_name: str,
     ) -> tuple[str, AgentTrace]:
-        """带工具调用的 Agent 循环。"""
+        """带工具调用的 Agent 循环。
+
+        不依赖 OpenAI 原生 function calling（DeepSeek 支持不完整）。
+        改为：在 prompt 中嵌入工具调用指令，LLM 输出 <<>> JSON 块，
+        解析后手动执行工具，结果回传。
+        """
         trace = AgentTrace(agent=agent_name)
         t0 = time.perf_counter()
         full_output = ""
 
-        # 构建工具 Schema（OpenAI function calling 格式）
-        tool_defs = []
+        # 构建工具使用说明
+        tool_descriptions = []
         for tname in allowed_tools:
             spec = TOOL_REGISTRY.get(tname)
             if spec:
-                tool_defs.append({
-                    "type": "function",
-                    "function": {
-                        "name": spec.name,
-                        "description": spec.description,
-                        "parameters": spec.input_schema,
-                    },
-                })
+                tool_descriptions.append(f"- {spec.name}: {spec.description}")
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ]
+        conversation = user_message
 
         for round_num in range(max_rounds):
-            payload = {
-                "model": self.llm.model,
-                "temperature": 0.1,
-                "messages": messages,
-                "tools": tool_defs if tool_defs else None,
-                "tool_choice": "auto" if tool_defs else None,
-            }
-            # 清理 None 值
-            payload = {k: v for k, v in payload.items() if v is not None}
+            # 用 _call_api（有 3 次重试，不传 tools 参数）
+            result = self.llm._call_api(system_prompt, conversation, temperature=0.1)
 
-            try:
-                import httpx
-                response = httpx.post(
-                    self.llm.api_url,
-                    headers={"Authorization": f"Bearer {self.llm.api_key}"},
-                    json=payload,
-                    timeout=60,
-                )
-                response.raise_for_status()
-                result = response.json()
-                choice = result["choices"][0]
-                msg = choice["message"]
+            if result is None:
+                trace.error = self.llm._last_error or "LLM 调用失败"
+                break
 
-                # 是否有工具调用？
-                tool_calls = msg.get("tool_calls", [])
-                if tool_calls:
-                    for tc in tool_calls:
-                        func_name = tc["function"]["name"]
-                        func_args = json.loads(tc["function"]["arguments"])
+            # 解析 <<>> JSON 工具调用块
+            tool_match = re.search(r'<<<TOOL>>>(\{.+?\})<<<END>>>', result, re.DOTALL)
 
-                        # 调用工具
+            if tool_match:
+                try:
+                    tool_json = json.loads(tool_match.group(1))
+                    tool_name = tool_json.get("tool", "")
+                    tool_args = tool_json.get("args", {})
+
+                    if tool_name in allowed_tools:
                         from app.services.tools import call_tool
-                        tool_result = await call_tool(func_name, func_args)
+                        tool_result = await call_tool(tool_name, tool_args)
 
                         trace.tool_calls.append({
                             "round": round_num + 1,
-                            "tool": func_name,
-                            "args": func_args,
+                            "tool": tool_name,
+                            "args": tool_args,
                             "success": tool_result.get("success", False),
                         })
                         trace.search_rounds = round_num + 1
 
-                        # 把工具调用和结果加入消息
-                        messages.append(msg)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": json.dumps(tool_result, ensure_ascii=False)[:2000],
-                        })
-                else:
-                    # 无工具调用 → 最终输出
-                    full_output = msg.get("content", "")
-                    break
+                        # 把工具结果追加到对话
+                        result_text = json.dumps(tool_result, ensure_ascii=False)[:2000]
+                        conversation = (
+                            f"{user_message}\n\n"
+                            f"--- 第 {round_num + 1} 轮工具调用结果 ---\n"
+                            f"工具: {tool_name}\n"
+                            f"参数: {json.dumps(tool_args, ensure_ascii=False)}\n"
+                            f"返回: {result_text}\n\n"
+                            f"请分析结果。如不满意可调整检索词重试（剩余 {max_rounds - round_num - 1} 次）。"
+                            f"如满意或无需再搜，直接输出最终文献列表。"
+                        )
+                    else:
+                        trace.error = f"未知工具: {tool_name}"
+                        break
 
-            except Exception as e:
-                trace.error = f"Round {round_num + 1}: {type(e).__name__}: {e}"
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                    # JSON 解析失败，可能是 LLM 输出了格式错误的内容
+                    # 将当前结果作为最终输出
+                    full_output = result
+                    break
+            else:
+                # 无工具调用 → 最终输出
+                full_output = result
                 break
 
         if not full_output:
-            # 兜底：用最后一条消息尝试获取内容
-            last_content = messages[-1].get("content", "") if messages else ""
-            if isinstance(last_content, str) and len(last_content) > 50:
-                full_output = last_content
+            trace.error = trace.error or "未获得有效输出"
 
         trace.output_summary = full_output[:200]
         trace.duration_ms = (time.perf_counter() - t0) * 1000
