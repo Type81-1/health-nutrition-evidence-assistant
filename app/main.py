@@ -20,6 +20,7 @@ from app.services.skills import list_skills, activate_skills, compose_system_pro
 from app.services.tools import list_tools, call_tool, TOOL_REGISTRY
 from app.services.mcp_handler import process_request, MCP_VERSION, SERVER_NAME
 from app.services.workflow import build_default_pipeline, Pipeline, PipelineContext
+from app.services.agent_pipeline import run_multi_agent, get_agent_pipeline
 from app.services.wiki_store import WikiStore, seed_wiki_store
 
 
@@ -268,6 +269,29 @@ def mcp_info():
             "initialize": "POST /mcp  {\"method\":\"initialize\"}",
         },
     }
+
+
+@app.post("/api/agent/ask")
+async def agent_ask(payload: dict):
+    """多 Agent 协作问答（Researcher → Writer → Critic）。
+
+    输入: {"question": "..."}
+    输出: 只返回最终回答 + 元数据（中间产物不暴露）
+    """
+    q = payload.get("question", "").strip()
+    if not q:
+        return {"error": "question required"}
+
+    domain = check_domain(q)
+    if not domain.safe:
+        return {"answer": "我是专门提供健康营养循证科普的助手。您的问题超出了我的知识范围。", "blocked": True, "reason": domain.reason}
+
+    safety = check_safety(q)
+    if not safety.safe:
+        return {"answer": f"基于安全与伦理准则，{safety.reason}", "blocked": True, "reason": safety.reason}
+
+    result = await run_multi_agent(q)
+    return result
 
 
 @app.get("/api/pipeline")
