@@ -373,25 +373,37 @@ async def agent_ask_stream(payload: dict):
         )
         yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Writer', 'message': ''})}\n\n"
 
-        # ── Agent 3: Critic ──
+        # ── Agent 3: Critic（30s 超时兜底，超时则跳过直接用 Writer 输出）──
         yield f"data: {json.dumps({'type': 'agent_start', 'agent': 'Critic', 'message': '正在审核回答...'})}\n\n"
         critic_input = (
             f"用户问题：{q}\n\n"
-            f"Researcher 检索到的文献证据：\n\n{researcher_result.output}\n\n"
-            f"---\nWriter 撰写的回答草稿：\n\n{writer_result.output if writer_result.success else researcher_result.output}\n\n---\n"
+            f"Researcher 检索到的文献证据：\n\n{researcher_result.output[:1000]}\n\n"
+            f"---\nWriter 撰写的回答草稿：\n\n{(writer_result.output if writer_result.success else researcher_result.output)[:1500]}\n\n---\n"
             f"请逐条核查引用、措辞、安全性、可读性，输出修正后的最终回答。直接输出修改后的回答，不要输出审查报告。"
         )
-        critic_result = await runner.run(
-            system_prompt=CRITIC_PROMPT,
-            user_message=critic_input,
-            agent_name="Critic",
-            allowed_tools=None,
-            max_rounds=1,
-        )
-        yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': ''})}\n\n"
+        try:
+            critic_result = await asyncio.wait_for(
+                runner.run(
+                    system_prompt=CRITIC_PROMPT,
+                    user_message=critic_input,
+                    agent_name="Critic",
+                    allowed_tools=None,
+                    max_rounds=1,
+                ),
+                timeout=30,
+            )
+        except asyncio.TimeoutError:
+            critic_result = None
+            yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': '超时跳过，使用 Writer 原稿'})}\n\n"
+
+        if critic_result is not None:
+            yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': ''})}\n\n"
 
         # ── 流式输出最终回答 ──
-        final_answer = critic_result.output if critic_result.success else (writer_result.output if writer_result.success else researcher_result.output)
+        final_answer = (
+            critic_result.output if (critic_result is not None and critic_result.success)
+            else (writer_result.output if writer_result.success else researcher_result.output)
+        )
         if final_answer:
             for chunk in _chunk_text(final_answer):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
