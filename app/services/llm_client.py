@@ -10,6 +10,12 @@ from dotenv import load_dotenv
 
 from app.services.evidence_store import EvidenceChunk
 
+# Skill 系统动态 Prompt（替代硬编码 SYSTEM_PROMPT）
+try:
+    from app.services.skills import compose_system_prompt as _compose_prompt
+except ImportError:
+    _compose_prompt = None
+
 # 加载项目根目录的 .env 文件
 _ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 if _ENV_PATH.exists():
@@ -157,8 +163,10 @@ class OpenAICompatibleLlm:
     def answer(self, question: str, evidence: list[EvidenceChunk]) -> str | None:
         if not self.configured:
             return None
+        # 动态组合 System Prompt（Skill 系统）
+        system_prompt = _compose_prompt(question) if _compose_prompt else SYSTEM_PROMPT
         source_text = self._build_source_text(evidence)
-        text = self._call_api(SYSTEM_PROMPT, f"问题：{question}\n\n可用证据（只使用与问题直接相关的条目）：\n{source_text}\n\n请用纯文本段落回答（不要用 markdown 格式，但必须用 [E1] [E2] 方括号标注引用）。")
+        text = self._call_api(system_prompt, f"问题：{question}\n\n可用证据（只使用与问题直接相关的条目）：\n{source_text}\n\n请用纯文本段落回答（不要用 markdown 格式，但必须用 [E1] [E2] 方括号标注引用）。")
         if text is None:
             return None
         # 校验引用：满足以下任一条件即接受回答
@@ -192,6 +200,7 @@ class OpenAICompatibleLlm:
         if not self.configured:
             yield None
             return
+        system_prompt = _compose_prompt(question) if _compose_prompt else SYSTEM_PROMPT
         source_text = self._build_source_text(evidence)
         user_msg = f"问题：{question}\n\n可用证据（只使用与问题直接相关的条目）：\n{source_text}\n\n请用纯文本段落回答（不要用 markdown 格式，但必须用 [E1] [E2] 方括号标注引用）。"
         payload = {
@@ -199,7 +208,7 @@ class OpenAICompatibleLlm:
             "temperature": 0.1,
             "stream": True,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
             ],
         }

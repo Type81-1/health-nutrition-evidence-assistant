@@ -16,6 +16,7 @@ from app.services.llm_client import OpenAICompatibleLlm
 from app.services.pubmed_client import PubMedClient
 from app.services.query_logger import QueryTrace
 from app.services.source_plugins import EuropePmcOpenAccessPlugin
+from app.services.skills import list_skills, activate_skills, compose_system_prompt as _compose_prompt
 from app.services.tools import list_tools, call_tool, TOOL_REGISTRY
 from app.services.wiki_store import WikiStore, seed_wiki_store
 
@@ -224,6 +225,23 @@ def tools_list(category: str = "") -> list[dict]:
 async def tools_call(tool_name: str, payload: dict):
     """调用指定工具。输入为标准 JSON，输出为 ToolResult。"""
     return await call_tool(tool_name, payload)
+
+
+@app.get("/api/skills")
+def skills_list(category: str = "") -> list[dict]:
+    """列出所有可用 Skill 及其触发条件。"""
+    return list_skills(category)
+
+
+@app.get("/api/skills/activate")
+def skills_activate(q: str = "") -> dict:
+    """测试：给定问题，返回会激活哪些 Skill。"""
+    active = activate_skills(q)
+    return {
+        "question": q,
+        "active_skills": [s.name for s in active],
+        "prompt_preview": _compose_prompt(q)[:500],
+    }
 
 
 @app.get("/api/wiki/topics/{topic_id}")
