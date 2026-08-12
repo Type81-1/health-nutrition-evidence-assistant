@@ -16,6 +16,10 @@ from app.services.llm_client import OpenAICompatibleLlm
 from app.services.pubmed_client import PubMedClient
 from app.services.query_logger import QueryTrace
 from app.services.source_plugins import EuropePmcOpenAccessPlugin
+from app.services.skills import list_skills, activate_skills, compose_system_prompt as _compose_prompt
+from app.services.tools import list_tools, call_tool, TOOL_REGISTRY
+from app.services.mcp_handler import process_request, MCP_VERSION, SERVER_NAME
+from app.services.workflow import build_default_pipeline, Pipeline, PipelineContext
 from app.services.wiki_store import WikiStore, seed_wiki_store
 
 
@@ -211,6 +215,110 @@ def wiki_topics(q: str = "") -> list[dict]:
     else:
         topics = list(wiki._topics.values())
     return [t.to_dict() for t in topics]
+
+
+@app.get("/api/tools")
+def tools_list(category: str = "") -> list[dict]:
+    """列出所有可用工具及其 JSON Schema。"""
+    return list_tools(category)
+
+
+@app.post("/api/tools/{tool_name}")
+async def tools_call(tool_name: str, payload: dict):
+    """调用指定工具。输入为标准 JSON，输出为 ToolResult。"""
+    return await call_tool(tool_name, payload)
+
+
+@app.get("/api/skills")
+def skills_list(category: str = "") -> list[dict]:
+    """列出所有可用 Skill 及其触发条件。"""
+    return list_skills(category)
+
+
+@app.post("/mcp")
+async def mcp_endpoint(payload: dict):
+    """MCP JSON-RPC 2.0 HTTP 端点。
+
+    兼容 Claude Desktop / 任何 MCP 客户端通过 HTTP 调用。
+    也支持批量请求（JSON-RPC batch = array of requests）。
+    """
+    # 批量请求
+    if isinstance(payload, list):
+        results = []
+        for req in payload:
+            results.append(await process_request(req))
+        return results
+    # 单个请求
+    return await process_request(payload)
+
+
+@app.get("/mcp")
+def mcp_info():
+    """MCP 服务信息。"""
+    return {
+        "protocol": "MCP (Model Context Protocol)",
+        "version": MCP_VERSION,
+        "server": SERVER_NAME,
+        "transport": "HTTP POST /mcp  (STDIO: scripts/run_mcp_stdio.py)",
+        "tools_count": len(TOOL_REGISTRY),
+        "endpoints": {
+            "tools/list": "POST /mcp  {\"method\":\"tools/list\"}",
+            "tools/call": "POST /mcp  {\"method\":\"tools/call\",\"params\":{\"name\":\"...\",\"arguments\":{...}}}",
+            "resources/list": "POST /mcp  {\"method\":\"resources/list\"}",
+            "initialize": "POST /mcp  {\"method\":\"initialize\"}",
+        },
+    }
+
+
+@app.get("/api/pipeline")
+def pipeline_config():
+    """查看当前 Pipeline 配置（哪些步骤启用/禁用）。"""
+    p = build_default_pipeline()
+    return {
+        "steps": [
+            {"name": s.name, "description": s.description, "enabled": s.enabled, "category": s.category}
+            for s in p.steps
+        ]
+    }
+
+
+@app.post("/api/pipeline/test")
+async def pipeline_test(payload: dict):
+    """测试：用 Pipeline 引擎回答一个问题，返回每步执行轨迹。"""
+    q = payload.get("question", "").strip()
+    if not q:
+        return {"error": "question required"}
+
+    p = build_default_pipeline()
+    ctx = PipelineContext(question=q)
+    ctx = await p.run(ctx)
+
+    # 构建类似 AnswerResponse 的输出
+    from app.schemas import AnswerResponse, Citation
+
+    return {
+        "question": q,
+        "answer": ctx.answer_text[:500],
+        "retrieval_note": ctx.retrieval_note,
+        "evidence_count": len(ctx.combined_evidence),
+        "domain_blocked": ctx.domain_blocked,
+        "safety_blocked": ctx.safety_blocked,
+        "no_evidence": ctx.no_evidence,
+        "citation_invalid": ctx.citation_invalid,
+        "errors": ctx.errors,
+        "pipeline_trace": ctx.step_traces,
+    }
+
+
+@app.get("/api/skills/activate")
+def skills_activate(q: str = "") -> dict:
+    """测试：给定问题，返回会激活哪些 Skill。"""
+    active = activate_skills(q)
+    return {
+        "question": q,
+        "active_skills": [s.name for s in active],
+        "prompt_preview": _compose_prompt(q)[:500],
+    }
 
 
 @app.get("/api/wiki/topics/{topic_id}")
