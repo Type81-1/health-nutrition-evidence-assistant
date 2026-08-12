@@ -373,7 +373,7 @@ async def agent_ask_stream(payload: dict):
         )
         yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Writer', 'message': ''})}\n\n"
 
-        # ── Agent 3: Critic（30s 超时兜底，超时则跳过直接用 Writer 输出）──
+        # ── Agent 3: Critic（后台运行 + 每 5s 心跳防止浏览器断连）──
         yield f"data: {json.dumps({'type': 'agent_start', 'agent': 'Critic', 'message': '正在审核回答...'})}\n\n"
         critic_input = (
             f"用户问题：{q}\n\n"
@@ -381,33 +381,47 @@ async def agent_ask_stream(payload: dict):
             f"---\nWriter 撰写的回答草稿：\n\n{(writer_result.output if writer_result.success else researcher_result.output)[:1500]}\n\n---\n"
             f"请逐条核查引用、措辞、安全性、可读性，输出修正后的最终回答。直接输出修改后的回答，不要输出审查报告。"
         )
-        try:
-            # Critic 用独立 httpx 直接调用（20s 超时，无重试），避免 runner 的 135s 链路
-            import httpx as _httpx
-            _cr = _httpx.post(
-                llm.api_url,
-                headers={"Authorization": f"Bearer {llm.api_key}"},
-                json={
-                    "model": llm.model, "temperature": 0.1,
-                    "messages": [
-                        {"role": "system", "content": CRITIC_PROMPT},
-                        {"role": "user", "content": critic_input},
-                    ],
-                },
-                timeout=20,
-            )
-            _cr.raise_for_status()
-            critic_raw = _cr.json()["choices"][0]["message"]["content"].strip()
-            if critic_raw and len(critic_raw) > 50:
-                from app.services.agent_pipeline import AgentTrace, AgentResult
-                critic_result = AgentResult(output=critic_raw, trace=AgentTrace(agent="Critic"), success=True)
-            else:
-                critic_result = None
-        except Exception:
-            critic_result = None
-        except asyncio.TimeoutError:
-            critic_result = None
-            yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': '超时跳过，使用 Writer 原稿'})}\n\n"
+
+        import httpx as _httpx
+        from app.services.agent_pipeline import AgentTrace, AgentResult
+        critic_result = None
+        critic_done = False
+
+        # 在后台线程运行 Critic，主线程每 5s 发心跳
+        import concurrent.futures as _cf
+        _executor = _cf.ThreadPoolExecutor(max_workers=1)
+
+        def _run_critic():
+            try:
+                _cr = _httpx.post(
+                    llm.api_url,
+                    headers={"Authorization": f"Bearer {llm.api_key}"},
+                    json={
+                        "model": llm.model, "temperature": 0.1,
+                        "messages": [
+                            {"role": "system", "content": CRITIC_PROMPT},
+                            {"role": "user", "content": critic_input},
+                        ],
+                    },
+                    timeout=20,
+                )
+                _cr.raise_for_status()
+                raw = _cr.json()["choices"][0]["message"]["content"].strip()
+                if raw and len(raw) > 50:
+                    return AgentResult(output=raw, trace=AgentTrace(agent="Critic"), success=True)
+            except Exception:
+                pass
+            return None
+
+        _future = _executor.submit(_run_critic)
+        while not critic_done:
+            try:
+                critic_result = _future.result(timeout=5)
+                critic_done = True
+            except _cf.TimeoutError:
+                yield f"data: {json.dumps({'type': 'heartbeat', 'agent': 'Critic'})}\n\n"
+
+        _executor.shutdown(wait=False)
 
         if critic_result is not None:
             yield f"data: {json.dumps({'type': 'agent_done', 'agent': 'Critic', 'message': ''})}\n\n"
